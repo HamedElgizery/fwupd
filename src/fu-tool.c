@@ -5270,7 +5270,8 @@ main(int argc, char *argv[])
 			      /* TRANSLATORS: command argument: uppercase, spaces->dashes */
 			      _("[DEVICE-ID|GUID]"),
 			      /* TRANSLATORS: command description */
-			      _("Gets the list of updates for connected hardware"),
+			      _("Updates all specified devices to latest firmware version, or all "
+				"devices if unspecified"),
 			      fu_util_get_updates);
 	fu_util_cmd_array_add(cmd_array,
 			      "get-devices,get-topology",
