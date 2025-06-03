@@ -40,6 +40,7 @@ plugins = {
   'corsair': false,
   'cpu': false,
   'cros-ec': false,
+  'cros-hammer': false,
   'dell': false,
   'dell-dock': false,
   'dell-kestrel': false,
