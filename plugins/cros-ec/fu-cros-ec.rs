@@ -37,7 +37,7 @@ enum FuCrosEcFirmwareUpgradeStatus {
 #[repr(C, packed)]
 struct FuStructCrosEcUpdateFrameHeader {
     block_size: u32be,          // total frame size, including this field
-    _cmd_block_digest: u32be,    // four bytes of the structure sha1 digest (or 0 where ignored)
+    cmd_block_digest: u32be,    // first four bytes of the structure sha256 digest (or 0 where ignored)
     cmd_block_base: u32be,      // offset of this PDU into the flash SPI
     // payload goes here
 }
@@ -80,7 +80,7 @@ struct FuStructCrosEcTouchpadGetInfoResponsePdu {
     vendor: u16le,                  // Vendor USB id
     fw_address: u32le,              // Virtual address to touchpad firmware
     fw_size: u32le,                 // Size of the touchpad firmware
-    allowed_fw_hash: [u8le; 32],    // Checksum of the entire touchpad firmware accepted by the EC image
+    allowed_fw_hash: [u8; 32],    // Checksum of the entire touchpad firmware accepted by the EC image
     id: u16le,
     fw_version: u16le,
     fw_checksum: u16le,
