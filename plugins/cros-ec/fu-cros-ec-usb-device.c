@@ -97,6 +97,22 @@ fu_cros_ec_usb_device_find_interface(FuUsbDevice *device, GError **error)
 	intfs = fu_usb_device_get_interfaces(device, error);
 	if (intfs == NULL)
 		return FALSE;
+	/*
+	 * NOTE, this might need fixing or might be okay...
+	 *
+	 * When working with hammer the interface that is targeted is the interface having
+	 * CLASS:FF, SUBCLASS:53, and PROTOCOL:FF (typically interface #1).
+	 *
+	 * Sometimes, while fwupd is parsing the USB descriptor it reads that interface 0 also has
+	 * this mentioned values, so it adds it to the device's interfaces.
+	 *
+	 * A guess here of what is happening; it could be that while the device is in bootloader
+	 * mode, the usb describtor might be intentionally different, and that could be why it
+	 * matches interface 0 as well. However, this doesn't cause a problem because when fwupd
+	 * tries to claim that interface, it fails either way and uses interface 1 instead.
+	 *
+	 * Might be worth having a look at to make sure whether this is a hammer
+	 * specific behavior, or a fwupd bug. */
 	for (guint i = 0; i < intfs->len; i++) {
 		FuUsbInterface *intf = g_ptr_array_index(intfs, i);
 		if (fu_usb_interface_get_class(intf) == 255 &&
@@ -1106,6 +1122,7 @@ fu_cros_ec_usb_device_init(FuCrosEcUsbDevice *self)
 	fu_device_add_private_flag(FU_DEVICE(self), FU_DEVICE_PRIVATE_FLAG_REPLUG_MATCH_GUID);
 	fu_device_add_private_flag(FU_DEVICE(self), FU_DEVICE_PRIVATE_FLAG_DETACH_PREPARE_FIRMWARE);
 	fu_device_set_acquiesce_delay(FU_DEVICE(self), 7500); /* ms */
+	fu_usb_device_set_claim_retry_count(FU_USB_DEVICE(self), 5);
 	fu_device_set_version_format(FU_DEVICE(self), FWUPD_VERSION_FORMAT_TRIPLET);
 	fu_device_set_remove_delay(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_REMOVE_DELAY);
 	fu_device_set_firmware_gtype(FU_DEVICE(self), FU_TYPE_CROS_EC_FIRMWARE);
