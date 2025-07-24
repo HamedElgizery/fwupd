@@ -21,6 +21,7 @@ G_DEFINE_TYPE(FuCrosEcFirmware, fu_cros_ec_firmware, FU_TYPE_FMAP_FIRMWARE)
 gboolean
 fu_cros_ec_firmware_pick_sections(FuCrosEcFirmware *self, guint32 writeable_offset, GError **error)
 {
+	g_warning("(DEBUG) PICKING FOR OFFSET: %d", writeable_offset);
 	gboolean found = FALSE;
 
 	for (gsize i = 0; i < self->sections->len; i++) {
@@ -50,6 +51,7 @@ fu_cros_ec_firmware_pick_sections(FuCrosEcFirmware *self, guint32 writeable_offs
 GPtrArray *
 fu_cros_ec_firmware_get_needed_sections(FuCrosEcFirmware *self, GError **error)
 {
+	g_warning("(DEBUG) GETTING SECTION");
 	g_autoptr(GPtrArray) needed_sections = g_ptr_array_new();
 
 	for (guint i = 0; i < self->sections->len; i++) {
@@ -57,6 +59,7 @@ fu_cros_ec_firmware_get_needed_sections(FuCrosEcFirmware *self, GError **error)
 		if (section->ustatus != FU_CROS_EC_FIRMWARE_UPGRADE_STATUS_NEEDED)
 			continue;
 		g_ptr_array_add(needed_sections, section);
+		g_warning("(DEBUG) SECTION TO WRITE: %s", section->name);
 	}
 	if (needed_sections->len == 0) {
 		g_set_error_literal(error,
@@ -136,6 +139,7 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 		section->image_idx = fu_firmware_get_idx(img);
 
 		version = fu_cros_ec_version_parse(section->raw_version, error);
+		g_warning("(DEBUG) VERSION: %s | %s", version->triplet, section->raw_version);
 		if (version == NULL) {
 			g_prefix_error(error,
 				       "failed parsing firmware's version: %32s: ",

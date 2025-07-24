@@ -107,9 +107,9 @@ fu_cros_ec_usb_device_find_interface(FuUsbDevice *device, GError **error)
 	 * this mentioned values, so it adds it to the device's interfaces.
 	 *
 	 * A guess here of what is happening; it could be that while the device is in bootloader
-	 * mode, the usb describtor might be intentionally different, and that could be why it
-	 * matches interface 0 as well. However, this doesn't cause a problem because when fwupd
-	 * tries to claim that interface, it fails either way and uses interface 1 instead.
+	 * mode, the usb describtor might be intentionally altered for a while, and that could be
+	 * why it matches interface 0 as well. However, this doesn't cause a problem because when
+	 * fwupd tries to claim that interface, it fails either way and uses interface 1 instead.
 	 *
 	 * Might be worth having a look at to make sure whether this is a hammer
 	 * specific behavior, or a fwupd bug. */
@@ -669,6 +669,7 @@ fu_cros_ec_usb_device_transfer_section(FuCrosEcUsbDevice *self,
 			g_prefix_error(error, "failed to transfer block 0x%x: ", i);
 			return FALSE;
 		}
+		g_warning("(SUCCESS) transferred block 0x%x:", i);
 		fu_progress_step_done(progress);
 	}
 
@@ -724,6 +725,30 @@ fu_cros_ec_usb_device_send_subcommand(FuCrosEcUsbDevice *self,
 
 	/* success */
 	return TRUE;
+}
+
+static void
+fu_cros_ec_usb_device_unlock_rw(FuCrosEcUsbDevice *self)
+{
+	g_warning("(DEBUG) SENDING UNLOCK RW");
+	guint8 response = 0x0;
+	guint16 subcommand = FU_CROS_EC_UPDATE_EXTRA_CMD_UNLOCK_RW;
+	guint8 command_body[2] = {0x0}; /* max command body size */
+	gsize command_body_size = 0;
+	gsize response_size = 1;
+	g_autoptr(GError) error_local = NULL;
+
+	if (!fu_cros_ec_usb_device_send_subcommand(self,
+						   subcommand,
+						   command_body,
+						   command_body_size,
+						   &response,
+						   &response_size,
+						   FALSE,
+						   &error_local)) {
+		/* failure here is ok */
+		g_warning("unlock rw failed: reset: %s", error_local->message);
+	}
 }
 
 static void
@@ -942,6 +967,20 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 		return TRUE;
 	}
 
+	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
+	    !self->in_bootloader) {
+		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
+		fu_cros_ec_usb_device_unlock_rw(self);
+		return TRUE;
+	}
+
+	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
+	    self->in_bootloader && ((1 << 8) & self->flash_protection) != 0) {
+		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
+		fu_cros_ec_usb_device_unlock_rw(self);
+		return TRUE;
+	}
+
 	sections = fu_cros_ec_firmware_get_needed_sections(cros_ec_firmware, error);
 	if (sections == NULL)
 		return FALSE;
@@ -972,6 +1011,7 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 			return FALSE;
 		}
 
+		// TODO: Fix me, section->version.triplet has no data...
 		if (self->in_bootloader) {
 			fu_device_set_version(device, section->version.triplet);
 		} else {
@@ -1122,7 +1162,7 @@ fu_cros_ec_usb_device_init(FuCrosEcUsbDevice *self)
 	fu_device_add_private_flag(FU_DEVICE(self), FU_DEVICE_PRIVATE_FLAG_REPLUG_MATCH_GUID);
 	fu_device_add_private_flag(FU_DEVICE(self), FU_DEVICE_PRIVATE_FLAG_DETACH_PREPARE_FIRMWARE);
 	fu_device_set_acquiesce_delay(FU_DEVICE(self), 7500); /* ms */
-	fu_usb_device_set_claim_retry_count(FU_USB_DEVICE(self), 5);
+	fu_usb_device_set_claim_retry_count(FU_USB_DEVICE(self), FU_CROS_EC_SETUP_RETRY_CNT);
 	fu_device_set_version_format(FU_DEVICE(self), FWUPD_VERSION_FORMAT_TRIPLET);
 	fu_device_set_remove_delay(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_REMOVE_DELAY);
 	fu_device_set_firmware_gtype(FU_DEVICE(self), FU_TYPE_CROS_EC_FIRMWARE);
