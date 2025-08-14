@@ -273,81 +273,6 @@ fu_cros_ec_usb_hammer_ensure_children(FuCrosEcUsbHammer *self, GError **error)
 }
 
 static gboolean
-fu_cros_ec_usb_hammer_probe(FuDevice *device, GError **error)
-{
-	if (!fu_cros_ec_usb_device_probe(device, error))
-		return FALSE;
-
-	/* success */
-	return TRUE;
-}
-
-static gboolean
-fu_cros_ec_usb_hammer_attach(FuDevice *device, FuProgress *progress, GError **error)
-{
-	if (!fu_cros_ec_usb_device_attach(device, progress, error))
-		return FALSE;
-
-	/* success */
-	return TRUE;
-}
-
-static gboolean
-fu_cros_ec_usb_hammer_detach(FuDevice *device, FuProgress *progress, GError **error)
-{
-	if (!fu_cros_ec_usb_device_detach(device, progress, error))
-		return FALSE;
-
-	/* success */
-	return TRUE;
-}
-
-static void
-fu_cros_ec_usb_hammer_replace(FuDevice *device, FuDevice *donor)
-{
-	fu_cros_ec_usb_device_replace(device, donor);
-}
-
-static gboolean
-fu_cros_ec_usb_hammer_cleanup(FuDevice *device,
-			      FuProgress *progress,
-			      FwupdInstallFlags flags,
-			      GError **error)
-{
-	if (!fu_cros_ec_usb_device_cleanup(device, progress, flags, error))
-		return FALSE;
-
-	/* success */
-	return TRUE;
-}
-
-static gboolean
-fu_cros_ec_usb_hammer_reload(FuDevice *device, GError **error)
-{
-	if (!fu_cros_ec_usb_device_reload(device, error))
-		return FALSE;
-
-	/* success */
-	return TRUE;
-}
-
-static void
-fu_cros_ec_usb_hammer_to_string(FuDevice *device, guint idt, GString *str)
-{
-	fu_cros_ec_usb_device_to_string(device, idt, str);
-}
-
-static FuFirmware *
-fu_cros_ec_usb_hammer_prepare_firmware(FuDevice *device,
-				       GInputStream *stream,
-				       FuProgress *progress,
-				       FuFirmwareParseFlags flags,
-				       GError **error)
-{
-	return fu_cros_ec_usb_device_prepare_firmware(device, stream, progress, flags, error);
-}
-
-static gboolean
 fu_cros_ec_usb_hammer_setup(FuDevice *device, GError **error)
 {
 	if (!fu_cros_ec_usb_device_setup(device, error))
@@ -361,12 +286,6 @@ fu_cros_ec_usb_hammer_setup(FuDevice *device, GError **error)
 }
 
 static void
-fu_cros_ec_usb_hammer_set_progress(FuDevice *self, FuProgress *progress)
-{
-	fu_cros_ec_usb_device_set_progress(self, progress);
-}
-
-static void
 fu_cros_ec_usb_hammer_init(FuCrosEcUsbHammer *self)
 {
 }
@@ -376,15 +295,6 @@ fu_cros_ec_usb_hammer_class_init(FuCrosEcUsbHammerClass *klass)
 {
 	FuDeviceClass *device_class = FU_DEVICE_CLASS(klass);
 	GObjectClass *object_class = G_OBJECT_CLASS(klass);
-	device_class->attach = fu_cros_ec_usb_hammer_attach;
-	device_class->detach = fu_cros_ec_usb_hammer_detach;
-	device_class->prepare_firmware = fu_cros_ec_usb_hammer_prepare_firmware;
 	device_class->setup = fu_cros_ec_usb_hammer_setup;
-	device_class->to_string = fu_cros_ec_usb_hammer_to_string;
 	device_class->write_firmware = fu_cros_ec_usb_hammer_write_firmware;
-	device_class->probe = fu_cros_ec_usb_hammer_probe;
-	device_class->set_progress = fu_cros_ec_usb_hammer_set_progress;
-	device_class->reload = fu_cros_ec_usb_hammer_reload;
-	device_class->replace = fu_cros_ec_usb_hammer_replace;
-	device_class->cleanup = fu_cros_ec_usb_hammer_cleanup;
 }
