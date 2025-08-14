@@ -34,41 +34,6 @@ typedef struct {
 	FuProgress *progress;
 } FuCrosEcUsbBlockHelper;
 
-guint8
-fu_cros_ec_usb_device_get_iface_idx(FuCrosEcUsbDevice *self)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	return priv->iface_idx;
-}
-
-guint8
-fu_cros_ec_usb_device_get_ep_num(FuCrosEcUsbDevice *self)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	return priv->ep_num;
-}
-
-guint16
-fu_cros_ec_usb_device_get_chunk_len(FuCrosEcUsbDevice *self)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	return priv->chunk_len;
-}
-
-gchar *
-fu_cros_ec_usb_device_get_raw_version(FuCrosEcUsbDevice *self)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	return priv->raw_version;
-}
-
-guint32
-fu_cros_ec_usb_device_get_maximum_pdu_size(FuCrosEcUsbDevice *self)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	return priv->maximum_pdu_size;
-}
-
 guint32
 fu_cros_ec_usb_device_get_flash_protection(FuCrosEcUsbDevice *self)
 {
@@ -76,104 +41,11 @@ fu_cros_ec_usb_device_get_flash_protection(FuCrosEcUsbDevice *self)
 	return priv->flash_protection;
 }
 
-guint32
-fu_cros_ec_usb_device_get_writeable_offset(FuCrosEcUsbDevice *self)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	return priv->writeable_offset;
-}
-
-guint16
-fu_cros_ec_usb_device_get_protocol_version(FuCrosEcUsbDevice *self)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	return priv->protocol_version;
-}
-
-gchar *
-fu_cros_ec_usb_device_get_configuration(FuCrosEcUsbDevice *self)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	return priv->configuration;
-}
-
 gboolean
 fu_cros_ec_usb_device_get_in_bootloader(FuCrosEcUsbDevice *self)
 {
 	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	return priv->in_bootloader;
-}
-
-void
-fu_cros_ec_usb_device_set_iface_idx(FuCrosEcUsbDevice *self, guint8 iface_idx)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	priv->iface_idx = iface_idx;
-}
-
-void
-fu_cros_ec_usb_device_set_ep_num(FuCrosEcUsbDevice *self, guint8 ep_num)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	priv->ep_num = ep_num;
-}
-
-void
-fu_cros_ec_usb_device_set_chunk_len(FuCrosEcUsbDevice *self, guint16 chunk_len)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	priv->chunk_len = chunk_len;
-}
-
-void
-fu_cros_ec_usb_device_set_raw_version(FuCrosEcUsbDevice *self, const gchar *raw_version)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	priv->raw_version = g_strdup(raw_version);
-}
-
-void
-fu_cros_ec_usb_device_set_maximum_pdu_size(FuCrosEcUsbDevice *self, guint32 maximum_pdu_size)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	priv->maximum_pdu_size = maximum_pdu_size;
-}
-
-void
-fu_cros_ec_usb_device_set_flash_protection(FuCrosEcUsbDevice *self, guint32 flash_protection)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	priv->flash_protection = flash_protection;
-}
-
-void
-fu_cros_ec_usb_device_set_writeable_offset(FuCrosEcUsbDevice *self, guint32 writeable_offset)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	priv->writeable_offset = writeable_offset;
-}
-
-void
-fu_cros_ec_usb_device_set_protocol_version(FuCrosEcUsbDevice *self, guint16 protocol_version)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	priv->protocol_version = protocol_version;
-}
-
-void
-fu_cros_ec_usb_device_set_configuration(FuCrosEcUsbDevice *self, const gchar *configuration)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	g_strlcpy(priv->configuration,
-		  configuration,
-		  FU_STRUCT_CROS_EC_FIRST_RESPONSE_PDU_SIZE_VERSION);
-}
-
-void
-fu_cros_ec_usb_device_set_in_bootloader(FuCrosEcUsbDevice *self, gboolean in_bootloader)
-{
-	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
-	priv->in_bootloader = in_bootloader;
 }
 
 static gboolean
@@ -239,7 +111,7 @@ fu_cros_ec_usb_device_find_interface(FuUsbDevice *device, GError **error)
 	return FALSE;
 }
 
-gboolean
+static gboolean
 fu_cros_ec_usb_device_probe(FuDevice *device, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
@@ -339,7 +211,7 @@ fu_cros_ec_usb_device_do_xfer(FuCrosEcUsbDevice *self,
 	return TRUE;
 }
 
-gboolean
+static gboolean
 fu_cros_ec_usb_device_flush(FuDevice *device, gpointer user_data, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
@@ -586,7 +458,7 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 	return TRUE;
 }
 
-gboolean
+static gboolean
 fu_cros_ec_usb_device_reload(FuDevice *device, GError **error)
 {
 	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN) &&
@@ -857,7 +729,7 @@ fu_cros_ec_usb_device_unlock_rw(FuCrosEcUsbDevice *self, GError **error)
 	return TRUE;
 }
 
-void
+static void
 fu_cros_ec_usb_device_reset_to_ro(FuCrosEcUsbDevice *self)
 {
 	guint8 response = 0x0;
@@ -996,26 +868,6 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 		return TRUE;
 	}
 
-	/*
-	 * If it is turn to update RW section, two conditions need
-	 * to be satisfied:
-	 *   1. ec has to be in bootloader mode
-	 *   2. RW Flash protection has to be disabled (enabled by default).
-	 *
-	 * We set another ANOTHER_WRITE_REQUIRED if any of the conditions is not met.
-	 *
-	 * Proceed with unlocking the the RW flash protection and rebooting
-	 * the device, attempting to land in bootloader mode with RW flash
-	 * protection disabled with the next write attempt.
-	 */
-	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
-	    (!priv->in_bootloader || (priv->flash_protection & (1 << 8)) != 0)) {
-		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
-		if (!fu_cros_ec_usb_device_unlock_rw(self, error))
-			return FALSE;
-		return TRUE;
-	}
-
 	sections = fu_cros_ec_firmware_get_needed_sections(cros_ec_firmware, error);
 	if (sections == NULL)
 		return FALSE;
@@ -1073,7 +925,7 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 	return TRUE;
 }
 
-FuFirmware *
+static FuFirmware *
 fu_cros_ec_usb_device_prepare_firmware(FuDevice *device,
 				       GInputStream *stream,
 				       FuProgress *progress,
@@ -1100,7 +952,7 @@ fu_cros_ec_usb_device_prepare_firmware(FuDevice *device,
 	return g_steal_pointer(&firmware);
 }
 
-gboolean
+static gboolean
 fu_cros_ec_usb_device_attach(FuDevice *device, FuProgress *progress, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
@@ -1134,7 +986,7 @@ fu_cros_ec_usb_device_attach(FuDevice *device, FuProgress *progress, GError **er
 	return TRUE;
 }
 
-gboolean
+static gboolean
 fu_cros_ec_usb_device_detach(FuDevice *device, FuProgress *progress, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
@@ -1164,7 +1016,7 @@ fu_cros_ec_usb_device_detach(FuDevice *device, FuProgress *progress, GError **er
 	return TRUE;
 }
 
-void
+static void
 fu_cros_ec_usb_device_replace(FuDevice *device, FuDevice *donor)
 {
 	if (fu_device_has_private_flag(donor, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN))
@@ -1177,7 +1029,7 @@ fu_cros_ec_usb_device_replace(FuDevice *device, FuDevice *donor)
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL);
 }
 
-gboolean
+static gboolean
 fu_cros_ec_usb_device_cleanup(FuDevice *device,
 			      FuProgress *progress,
 			      FwupdInstallFlags flags,
@@ -1215,7 +1067,7 @@ fu_cros_ec_usb_device_init(FuCrosEcUsbDevice *self)
 	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_DEVICE_FLAG_HAS_TOUCHPAD);
 }
 
-void
+static void
 fu_cros_ec_usb_device_to_string(FuDevice *device, guint idt, GString *str)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
@@ -1227,7 +1079,7 @@ fu_cros_ec_usb_device_to_string(FuDevice *device, guint idt, GString *str)
 	fwupd_codec_string_append_hex(str, idt, "WriteableOffset", priv->writeable_offset);
 }
 
-void
+static void
 fu_cros_ec_usb_device_set_progress(FuDevice *self, FuProgress *progress)
 {
 	fu_progress_set_id(progress, G_STRLOC);
@@ -1238,7 +1090,7 @@ fu_cros_ec_usb_device_set_progress(FuDevice *self, FuProgress *progress)
 	fu_progress_add_step(progress, FWUPD_STATUS_DEVICE_BUSY, 22, "reload");
 }
 
-void
+static void
 fu_cros_ec_usb_device_finalize(GObject *object)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(object);
