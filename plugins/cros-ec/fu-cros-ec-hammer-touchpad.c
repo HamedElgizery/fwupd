@@ -70,10 +70,10 @@ fu_cros_ec_hammer_touchpad_set_metadata(FuCrosEcHammerTouchpad *self, GError **e
 		vendor_name = g_strdup("ELAN");
 		break;
 	default:
-		g_set_error(error,
-			    FWUPD_ERROR,
-			    FWUPD_ERROR_INVALID_DATA,
-			    "invalid touchpad vendor id received");
+		g_set_error_literal(error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_INVALID_DATA,
+				    "invalid touchpad vendor id received");
 		return FALSE;
 	}
 	device_name = g_strdup_printf("%s Touchpad", vendor_name);
@@ -116,7 +116,7 @@ fu_cros_ec_hammer_touchpad_get_info(FuCrosEcHammerTouchpad *self, GError **error
 						   &response_size,
 						   FALSE,
 						   &error_local)) {
-		g_prefix_error(error, "failed to probe touchpad");
+		g_prefix_error_literal(error, "failed to probe touchpad");
 		return FALSE;
 	}
 
@@ -220,10 +220,10 @@ fu_cros_ec_hammer_touchpad_firmware_validate(FuDevice *device, FuFirmware *firmw
 		     FU_DUMP_FLAGS_NONE);
 
 	if (memcmp(digest, priv->allowed_fw_hash, SHA256_DIGEST_LENGTH) != 0) {
-		g_set_error(error,
-			    FWUPD_ERROR,
-			    FWUPD_ERROR_INVALID_DATA,
-			    "Touchpad firmware mismatches hash in RW EC.");
+		g_set_error_literal(error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_INVALID_DATA,
+				    "Touchpad firmware mismatches hash in RW EC.");
 		return FALSE;
 	}
 

@@ -721,7 +721,7 @@ fu_cros_ec_usb_device_unlock_rw(FuCrosEcUsbDevice *self, GError **error)
 						   &response_size,
 						   FALSE,
 						   error)) {
-		g_prefix_error(error, "unlock rw failed:");
+		g_prefix_error_literal(error, "unlock rw failed:");
 		return FALSE;
 	}
 
