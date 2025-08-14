@@ -52,7 +52,7 @@ fu_cros_ec_usb_hammer_write_touchpad_firmware(FuDevice *device,
 			     FU_CROS_EC_SETUP_RETRY_CNT,
 			     st_rpdu,
 			     error)) {
-		g_prefix_error(error, "touchpad: failed to send start request: ");
+		g_prefix_error_literal(error, "touchpad: failed to send start request: ");
 		return FALSE;
 	}
 
@@ -135,13 +135,13 @@ fu_cros_ec_usb_hammer_write_firmware(FuDevice *device,
 
 		fu_device_remove_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
 		if (!fu_cros_ec_usb_device_stay_in_ro(FU_CROS_EC_USB_DEVICE(self), error)) {
-			g_prefix_error(error, "failed to send stay-in-ro subcommand: ");
+			g_prefix_error_literal(error, "failed to send stay-in-ro subcommand: ");
 			return FALSE;
 		}
 
 		/* flush all data from endpoint to recover in case of error */
 		if (!fu_cros_ec_usb_device_recovery(FU_CROS_EC_USB_DEVICE(self), error)) {
-			g_prefix_error(error, "failed to flush device to idle state: ");
+			g_prefix_error_literal(error, "failed to flush device to idle state: ");
 			return FALSE;
 		}
 
@@ -151,7 +151,7 @@ fu_cros_ec_usb_hammer_write_firmware(FuDevice *device,
 				     FU_CROS_EC_SETUP_RETRY_CNT,
 				     st_rpdu,
 				     error)) {
-			g_prefix_error(error, "failed to send start request: ");
+			g_prefix_error_literal(error, "failed to send start request: ");
 			return FALSE;
 		}
 	}
