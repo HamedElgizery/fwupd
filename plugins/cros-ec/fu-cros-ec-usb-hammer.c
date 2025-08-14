@@ -294,7 +294,6 @@ static void
 fu_cros_ec_usb_hammer_class_init(FuCrosEcUsbHammerClass *klass)
 {
 	FuDeviceClass *device_class = FU_DEVICE_CLASS(klass);
-	GObjectClass *object_class = G_OBJECT_CLASS(klass);
 	device_class->setup = fu_cros_ec_usb_hammer_setup;
 	device_class->write_firmware = fu_cros_ec_usb_hammer_write_firmware;
 }
