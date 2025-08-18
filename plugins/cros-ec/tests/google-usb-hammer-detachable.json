@@ -1,0 +1,23 @@
+{
+  "name": "Google USB Hammer Detachable",
+  "interactive": false,
+  "steps": [
+    {
+      "url": "fc12b20f7d000cba0eb0dd20479e9c7fec1097db50e471eccaaaee599f738690-hammer_231.0_2.0.cab",
+      "components": [
+        {
+          "version": "231.0",
+          "guids": [
+            "4aa98691-7654-5eb3-b416-8061e5db0725"
+          ]
+        },
+        {
+          "version": "2.0",
+          "guids": [
+            "93ab0b0a-0871-58c4-8edf-a79715306273"
+          ]
+        }
+      ]
+    }
+  ]
+}
