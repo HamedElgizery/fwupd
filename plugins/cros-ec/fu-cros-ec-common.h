@@ -8,6 +8,8 @@
 
 #include <fwupdplugin.h>
 
+#define SHA256_DIGEST_LENGTH 32
+
 #define FU_CROS_EC_MAX_BLOCK_XFER_RETRIES  10
 #define FU_CROS_EC_FLUSH_TIMEOUT_MS	   10
 #define FU_CROS_EC_BULK_SEND_TIMEOUT	   2000 /* ms */

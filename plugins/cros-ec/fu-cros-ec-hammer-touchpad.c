@@ -15,8 +15,6 @@
 #include "fu-cros-ec-usb-device.h"
 #include "fu-cros-ec-usb-hammer.h"
 
-#define SHA256_DIGEST_LENGTH 32
-
 #define ST_VENDOR_ID   0x0483
 #define ELAN_VENDOR_ID 0x04f3
 
@@ -197,6 +195,8 @@ fu_cros_ec_hammer_touchpad_firmware_validate(FuDevice *device, FuFirmware *firmw
 	payload = fu_firmware_get_bytes(firmware, error);
 	fw = g_bytes_get_data(payload, &fwsize);
 
+	g_warning("DEBUG: VALIDATING TOUCHPAD");
+
 	if ((gsize)priv->fw_size != fwsize) {
 		g_set_error(error,
 			    FWUPD_ERROR,
@@ -219,6 +219,10 @@ fu_cros_ec_hammer_touchpad_firmware_validate(FuDevice *device, FuFirmware *firmw
 		     80,
 		     FU_DUMP_FLAGS_NONE);
 
+	g_warning("TOUCHPAD FW HASH (DIG | ALLOWED): ");
+	for (guint i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
+		g_warning("%02x | %02x", digest[i], priv->allowed_fw_hash[i]);
+	}
 	if (memcmp(digest, priv->allowed_fw_hash, SHA256_DIGEST_LENGTH) != 0) {
 		g_set_error_literal(error,
 				    FWUPD_ERROR,
