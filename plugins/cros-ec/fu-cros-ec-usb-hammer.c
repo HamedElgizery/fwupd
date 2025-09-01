@@ -57,6 +57,7 @@ fu_cros_ec_usb_hammer_write_touchpad_firmware(FuDevice *device,
 	}
 
 	fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP);
+	g_warning("DEBUG: START WRITE TOUCHAPD");
 
 	/*
 	 * Probably, can be replaced with the CrosEcUsbHammer's maximum_pdu_size,
@@ -109,10 +110,12 @@ fu_cros_ec_usb_hammer_write_touchpad_firmware(FuDevice *device,
 			g_prefix_error(error, "touchpad: failed to transfer block 0x%x: ", i);
 			return FALSE;
 		}
+		g_warning("DEBUG: SUCCESS 0x%x", i);
 		fu_progress_step_done(progress);
 	}
 
 	fu_device_remove_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP);
+	g_warning("DEBUG: TOUCHPAD DONE");
 	return TRUE;
 }
 
@@ -123,6 +126,7 @@ fu_cros_ec_usb_hammer_write_firmware(FuDevice *device,
 				     FwupdInstallFlags flags,
 				     GError **error)
 {
+	g_warning("WRITE ROUND START");
 	FuCrosEcUsbHammer *self = FU_CROS_EC_USB_HAMMER(device);
 	g_autoptr(GPtrArray) sections = NULL;
 	FuCrosEcFirmware *cros_ec_firmware = FU_CROS_EC_FIRMWARE(firmware);
@@ -203,6 +207,11 @@ fu_cros_ec_usb_hammer_write_firmware(FuDevice *device,
 	if (sections == NULL)
 		return FALSE;
 
+	g_warning("DEBUG: STARTING EC UPDATE");
+	if (fu_cros_ec_usb_device_get_in_bootloader(FU_CROS_EC_USB_DEVICE(self)))
+		g_warning("DEBUG: RW");
+	else
+		g_warning("DEBUG: RO");
 	/* progress */
 	fu_progress_set_id(progress, G_STRLOC);
 	fu_progress_set_steps(progress, sections->len);
@@ -238,6 +247,7 @@ fu_cros_ec_usb_hammer_write_firmware(FuDevice *device,
 
 		fu_progress_step_done(progress);
 	}
+	g_warning("DEBUG: EC UPDATE DONE");
 
 	/* send done */
 	fu_cros_ec_usb_device_send_done(FU_CROS_EC_USB_DEVICE(self));

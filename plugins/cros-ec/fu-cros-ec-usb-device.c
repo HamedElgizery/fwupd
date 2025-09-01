@@ -475,7 +475,9 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
 	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	FuCrosEcUsbBlockHelper *helper = (FuCrosEcUsbBlockHelper *)user_data;
+	guint8 digest[SHA256_DIGEST_LENGTH] = {0};
 	gsize transfer_size = 0;
+	guint32 digest_val = 0;
 	guint32 reply = 0;
 	g_autoptr(FuStructCrosEcUpdateFrameHeader) ufh =
 	    fu_struct_cros_ec_update_frame_header_new();
@@ -494,19 +496,21 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 		 * Sets the cmd_block_digest with the first 32 bits of the SHA256 digest
 		 * as done in hammerd.
 		 * */
-		gchar *digest = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
-							    fu_chunk_get_data(helper->block),
-							    fu_chunk_get_data_sz(helper->block));
-		guint32 digest_val;
-		if (!fu_memcpy_safe((guint8 *)&digest_val,
-				    sizeof(digest_val),
-				    0x0,
-				    (const guint8 *)digest,
-				    sizeof(digest),
-				    0x0,
-				    sizeof(digest_val),
-				    error))
+		gsize out_len = SHA256_DIGEST_LENGTH;
+		GChecksum *cs = g_checksum_new(G_CHECKSUM_SHA256);
+		g_checksum_update(cs,
+				  fu_chunk_get_data(helper->block),
+				  fu_chunk_get_data_sz(helper->block));
+		g_checksum_get_digest(cs, digest, &out_len);
+
+		if (!fu_memread_uint32_safe((const guint8 *)digest,
+					    sizeof(digest),
+					    0x0,
+					    &digest_val,
+					    G_BIG_ENDIAN,
+					    error))
 			return FALSE;
+
 		fu_struct_cros_ec_update_frame_header_set_cmd_block_digest(ufh, digest_val);
 	}
 
@@ -556,6 +560,7 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 				g_debug("failed to flush to idle: %s", error_flush->message);
 			return FALSE;
 		}
+		g_debug("DEBUG: SUCCESS CHUNK 0x%X", i);
 		fu_progress_step_done(helper->progress);
 	}
 
@@ -647,6 +652,7 @@ fu_cros_ec_usb_device_transfer_section(FuCrosEcUsbDevice *self,
 			g_prefix_error(error, "failed to transfer block 0x%x: ", i);
 			return FALSE;
 		}
+		g_warning("DEBUG: SUCCESS BLOCK 0x%X", i);
 		fu_progress_step_done(progress);
 	}
 
