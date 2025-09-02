@@ -39,5 +39,5 @@ GType = FuCrosEcUsbDevice
 [USB\VID_18D1&PID_5061]
 Plugin = cros_ec
 Summary = Hammer Base Detachable
-Flags = has-touchpad
+Flags = has-touchpad,block-digest-required
 GType = FuCrosEcUsbHammer
