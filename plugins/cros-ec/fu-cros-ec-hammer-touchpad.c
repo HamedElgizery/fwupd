@@ -26,7 +26,7 @@ typedef struct {
 	guint16 id;
 	guint16 fw_version;
 	guint16 fw_checksum;
-	gboolean is_remunerated; // Data can be populated only when ec is in runtime mode.
+	gboolean is_reenumerated; // Data can be populated only when ec is in runtime mode.
 } FuCrosEcHammerTouchpadPrivate;
 
 G_DEFINE_TYPE_WITH_PRIVATE(FuCrosEcHammerTouchpad, fu_cros_ec_hammer_touchpad, FU_TYPE_DEVICE)
@@ -68,10 +68,11 @@ fu_cros_ec_hammer_touchpad_set_metadata(FuCrosEcHammerTouchpad *self, GError **e
 		vendor_name = g_strdup("ELAN");
 		break;
 	default:
-		g_set_error_literal(error,
-				    FWUPD_ERROR,
-				    FWUPD_ERROR_INVALID_DATA,
-				    "invalid touchpad vendor id received");
+		g_set_error(error,
+			    FWUPD_ERROR,
+			    FWUPD_ERROR_INVALID_DATA,
+			    "invalid touchpad vendor id 0x%04X received",
+			    priv->vendor);
 		return FALSE;
 	}
 	device_name = g_strdup_printf("%s Touchpad", vendor_name);
@@ -114,7 +115,7 @@ fu_cros_ec_hammer_touchpad_get_info(FuCrosEcHammerTouchpad *self, GError **error
 						   &response_size,
 						   FALSE,
 						   &error_local)) {
-		g_prefix_error_literal(error, "failed to probe touchpad");
+		g_prefix_error_literal(error, "failed to retrieve touchpad info");
 		return FALSE;
 	}
 
@@ -142,7 +143,7 @@ fu_cros_ec_hammer_touchpad_get_info(FuCrosEcHammerTouchpad *self, GError **error
 	priv->fw_checksum =
 	    fu_struct_cros_ec_touchpad_get_info_response_pdu_get_fw_checksum(tpi_rpdu);
 
-	priv->is_remunerated = TRUE;
+	priv->is_reenumerated = TRUE;
 
 	/* success */
 	return TRUE;
@@ -158,7 +159,7 @@ fu_cros_ec_hammer_touchpad_probe(FuDevice *device, GError **error)
 
 	g_return_val_if_fail(FU_IS_CROS_EC_USB_DEVICE(proxy), FALSE);
 
-	priv->is_remunerated = FALSE;
+	priv->is_reenumerated = FALSE;
 
 	instance_id = g_strdup_printf("USB\\VID_%04X&PID_%04X&TP",
 				      fu_device_get_vid(FU_DEVICE(proxy)),
@@ -267,7 +268,7 @@ fu_cros_ec_hammer_touchpad_prepare_firmware(FuDevice *device,
 	 */
 
 	/* device should've already been probed */
-	if (!priv->is_remunerated) {
+	if (!priv->is_reenumerated) {
 		g_set_error_literal(error,
 				    FWUPD_ERROR,
 				    FWUPD_ERROR_INVALID_DATA,
@@ -301,7 +302,7 @@ fu_cros_ec_hammer_touchpad_write_firmware(FuDevice *device,
 	 */
 
 	/* device should've already been probed */
-	if (!priv->is_remunerated) {
+	if (!priv->is_reenumerated) {
 		g_set_error_literal(error,
 				    FWUPD_ERROR,
 				    FWUPD_ERROR_INVALID_DATA,

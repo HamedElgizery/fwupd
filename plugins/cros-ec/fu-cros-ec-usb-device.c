@@ -13,6 +13,17 @@
 #include "fu-cros-ec-struct.h"
 #include "fu-cros-ec-usb-device.h"
 
+#define FU_CROS_EC_USB_SUBCLASS_GOOGLE_UPDATE 0x53
+#define FU_CROS_EC_USB_PROTOCOL_GOOGLE_UPDATE 0xff
+
+#define FU_CROS_EC_FLUSH_TIMEOUT_MS	   10
+#define FU_CROS_EC_BULK_SEND_TIMEOUT	   2000 /* ms */
+#define FU_CROS_EC_BULK_RECV_TIMEOUT	   5000 /* ms */
+#define FU_CROS_EC_USB_DEVICE_REMOVE_DELAY 20000
+
+#define FU_CROS_EC_REQUEST_UPDATE_DONE	    0xB007AB1E
+#define FU_CROS_EC_REQUEST_UPDATE_EXTRA_CMD 0xB007AB1F
+
 typedef struct {
 	guint8 iface_idx;  /* bInterfaceNumber */
 	guint8 ep_num;	   /* bEndpointAddress */
@@ -34,6 +45,13 @@ typedef struct {
 	FuProgress *progress;
 } FuCrosEcUsbBlockHelper;
 
+#define FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN		     "ro-written"
+#define FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN		     "rw-written"
+#define FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO	     "rebooting-to-ro"
+#define FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL		     "special"
+#define FU_CROS_EC_USB_DEVICE_FLAG_HAS_TOUCHPAD		     "has-touchpad"
+#define FU_CROS_EC_USB_DEVICE_FLAG_CMD_BLOCK_DIGEST_REQUIRED "block-digest-required"
+
 guint32
 fu_cros_ec_usb_device_get_flash_protection(FuCrosEcUsbDevice *self)
 {
@@ -49,7 +67,7 @@ fu_cros_ec_usb_device_get_in_bootloader(FuCrosEcUsbDevice *self)
 }
 
 static gboolean
-fu_cros_ec_usb_device_read_configuration(FuCrosEcUsbDevice *self, GError **error)
+fu_cros_ec_usb_device_get_configuration(FuCrosEcUsbDevice *self, GError **error)
 {
 	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	guint8 index;
@@ -388,7 +406,7 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 	priv->flash_protection = fu_struct_cros_ec_first_response_pdu_get_flash_protection(st_rpdu);
 
 	/* get active version string and running region from iConfiguration */
-	if (!fu_cros_ec_usb_device_read_configuration(self, error))
+	if (!fu_cros_ec_usb_device_get_configuration(self, error))
 		return FALSE;
 	config_split = g_strsplit(priv->configuration, ":", 2);
 	if (g_strv_length(config_split) < 2) {
@@ -491,7 +509,8 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 	    ufh,
 	    fu_chunk_get_address(helper->block));
 
-	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP)) {
+	if (fu_device_has_private_flag(device,
+				       FU_CROS_EC_USB_DEVICE_FLAG_CMD_BLOCK_DIGEST_REQUIRED)) {
 		/*
 		 * Sets the cmd_block_digest with the first 32 bits of the SHA256 digest
 		 * as done in hammerd.
@@ -503,6 +522,7 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 				  fu_chunk_get_data_sz(helper->block));
 		g_checksum_get_digest(cs, digest, &out_len);
 
+		/* Sets the first 4 bytes in big endian */
 		if (!fu_memread_uint32_safe((const guint8 *)digest,
 					    sizeof(digest),
 					    0x0,
@@ -510,6 +530,7 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 					    G_BIG_ENDIAN,
 					    error))
 			return FALSE;
+		g_warning("DIGEST: %u", digest_val);
 
 		fu_struct_cros_ec_update_frame_header_set_cmd_block_digest(ufh, digest_val);
 	}
@@ -1068,9 +1089,10 @@ fu_cros_ec_usb_device_init(FuCrosEcUsbDevice *self)
 	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN);
 	fu_device_register_private_flag(FU_DEVICE(self),
 					FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
-	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP);
+	fu_device_register_private_flag(FU_DEVICE(self),
+					FU_CROS_EC_USB_DEVICE_FLAG_CMD_BLOCK_DIGEST_REQUIRED);
 	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL);
-	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_DEVICE_FLAG_HAS_TOUCHPAD);
+	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_FLAG_HAS_TOUCHPAD);
 }
 
 static void

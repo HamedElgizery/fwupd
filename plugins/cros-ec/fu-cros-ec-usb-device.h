@@ -26,12 +26,12 @@ struct _FuCrosEcUsbDeviceClass {
 #define FU_CROS_EC_USB_SUBCLASS_GOOGLE_UPDATE 0x53
 #define FU_CROS_EC_USB_PROTOCOL_GOOGLE_UPDATE 0xff
 
-#define FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN	   "ro-written"
-#define FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN	   "rw-written"
-#define FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP	   "updating-touchpad"
-#define FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO "rebooting-to-ro"
-#define FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL	   "special"
-#define FU_CROS_EC_DEVICE_FLAG_HAS_TOUCHPAD	   "has-touchpad"
+#define FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN		     "ro-written"
+#define FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN		     "rw-written"
+#define FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO	     "rebooting-to-ro"
+#define FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL		     "special"
+#define FU_CROS_EC_USB_DEVICE_FLAG_HAS_TOUCHPAD		     "has-touchpad"
+#define FU_CROS_EC_USB_DEVICE_FLAG_CMD_BLOCK_DIGEST_REQUIRED "block-digest-required"
 
 guint32
 fu_cros_ec_usb_device_get_flash_protection(FuCrosEcUsbDevice *self);

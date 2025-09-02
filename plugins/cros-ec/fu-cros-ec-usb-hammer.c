@@ -56,7 +56,6 @@ fu_cros_ec_usb_hammer_write_touchpad_firmware(FuDevice *device,
 		return FALSE;
 	}
 
-	fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP);
 	g_warning("DEBUG: START WRITE TOUCHAPD");
 
 	/*
@@ -114,24 +113,24 @@ fu_cros_ec_usb_hammer_write_touchpad_firmware(FuDevice *device,
 		fu_progress_step_done(progress);
 	}
 
-	fu_device_remove_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP);
 	g_warning("DEBUG: TOUCHPAD DONE");
 	return TRUE;
 }
 
 static gboolean
-fu_cros_ec_usb_hammer_write_firmware(FuDevice *device,
-				     FuFirmware *firmware,
-				     FuProgress *progress,
-				     FwupdInstallFlags flags,
-				     GError **error)
+fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
+					     FuFirmware *firmware,
+					     FuProgress *progress,
+					     FwupdInstallFlags flags,
+					     GError **error)
 {
-	g_warning("WRITE ROUND START");
 	FuCrosEcUsbHammer *self = FU_CROS_EC_USB_HAMMER(device);
 	g_autoptr(GPtrArray) sections = NULL;
 	FuCrosEcFirmware *cros_ec_firmware = FU_CROS_EC_FIRMWARE(firmware);
 
 	fu_device_remove_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL);
+
+	g_warning("WRITE ROUND START");
 
 	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO)) {
 		g_autoptr(FuStructCrosEcFirstResponsePdu) st_rpdu =
@@ -272,7 +271,7 @@ fu_cros_ec_usb_hammer_ensure_children(FuCrosEcUsbHammer *self, GError **error)
 	FuDevice *device = FU_DEVICE(self);
 	g_autoptr(FuCrosEcHammerTouchpad) touchpad = NULL;
 
-	if (!fu_device_has_private_flag(device, FU_CROS_EC_DEVICE_FLAG_HAS_TOUCHPAD))
+	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_HAS_TOUCHPAD))
 		return TRUE;
 
 	touchpad = fu_cros_ec_hammer_touchpad_new(FU_DEVICE(device));
@@ -305,5 +304,5 @@ fu_cros_ec_usb_hammer_class_init(FuCrosEcUsbHammerClass *klass)
 {
 	FuDeviceClass *device_class = FU_DEVICE_CLASS(klass);
 	device_class->setup = fu_cros_ec_usb_hammer_setup;
-	device_class->write_firmware = fu_cros_ec_usb_hammer_write_firmware;
+	device_class->write_firmware = fu_cros_ec_usb_hammer_write_base_ec_firmware;
 }
