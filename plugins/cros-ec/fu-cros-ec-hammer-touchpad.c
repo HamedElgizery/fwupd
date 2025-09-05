@@ -105,6 +105,7 @@ fu_cros_ec_hammer_touchpad_get_info(FuCrosEcHammerTouchpad *self, GError **error
 	g_autoptr(GError) error_local = NULL;
 	guint8 *buffer = NULL;
 
+	g_warning("ATTEMPT GET INFO");
 	g_return_val_if_fail(FU_IS_CROS_EC_USB_DEVICE(proxy), FALSE);
 
 	if (!fu_cros_ec_usb_device_send_subcommand(FU_CROS_EC_USB_DEVICE(proxy),
@@ -126,8 +127,10 @@ fu_cros_ec_hammer_touchpad_get_info(FuCrosEcHammerTouchpad *self, GError **error
 			    FWUPD_ERROR_INTERNAL,
 			    "target touchpad reporting error %u",
 			    error_code);
+		g_warning("ATTEMPT GET INFO (BAD)");
 		return FALSE;
 	}
+	g_warning("ATTEMPT GET INFO (GOOD)");
 
 	priv->vendor = fu_struct_cros_ec_touchpad_get_info_response_pdu_get_vendor(tpi_rpdu);
 	priv->fw_address =
@@ -318,6 +321,8 @@ fu_cros_ec_hammer_touchpad_write_firmware(FuDevice *device,
 							   error))
 		return FALSE;
 
+	// TODO: Set to real value, after writing a parse method
+	fu_device_set_version(device, "0.0");
 	/* success */
 	return TRUE;
 }
