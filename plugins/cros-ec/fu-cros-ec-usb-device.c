@@ -151,6 +151,7 @@ fu_cros_ec_usb_device_probe(FuDevice *device, GError **error)
 			    priv->chunk_len);
 		return FALSE;
 	}
+	g_warning("PROBED EC");
 
 	/* success */
 	return TRUE;
@@ -324,6 +325,7 @@ fu_cros_ec_usb_device_start_request_cb(FuDevice *device, gpointer user_data, GEr
 	g_autoptr(FuStructCrosEcUpdateFrameHeader) ufh =
 	    fu_struct_cros_ec_update_frame_header_new();
 
+	g_warning("DEBUG: SEND START REQUEST");
 	fu_struct_cros_ec_update_frame_header_set_block_size(ufh, ufh->len);
 	if (!fu_cros_ec_usb_device_do_xfer(self,
 					   ufh->data,
@@ -342,9 +344,11 @@ fu_cros_ec_usb_device_start_request_cb(FuDevice *device, gpointer user_data, GEr
 			    FWUPD_ERROR_READ,
 			    "unexpected response size %" G_GSIZE_FORMAT,
 			    rxed_size);
+		g_warning("DEBUG: SEND START REQUEST (BAD)");
 		return FALSE;
 	}
 
+	g_warning("DEBUG: SEND START REQUEST (GOOD)");
 	/* success */
 	return TRUE;
 }
@@ -369,6 +373,7 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 	if (!fu_cros_ec_usb_device_recovery(self, error))
 		return FALSE;
 
+	g_warning("SETUP EC (BEFORE START REQ)");
 	/* send start request */
 	if (!fu_device_retry(device,
 			     fu_cros_ec_usb_device_start_request_cb,
@@ -378,6 +383,7 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 		g_prefix_error_literal(error, "failed to send start request: ");
 		return FALSE;
 	}
+	g_warning("SETUP EC (AFTER START REQ)");
 
 	priv->protocol_version = fu_struct_cros_ec_first_response_pdu_get_protocol_version(st_rpdu);
 	if (priv->protocol_version < 5 || priv->protocol_version > 6) {
@@ -523,14 +529,18 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 		g_checksum_get_digest(cs, digest, &out_len);
 
 		/* Sets the first 4 bytes in big endian */
-		if (!fu_memread_uint32_safe((const guint8 *)digest,
-					    sizeof(digest),
-					    0x0,
-					    &digest_val,
-					    G_BIG_ENDIAN,
-					    error))
+		if (!fu_memcpy_safe((guint8 *)&digest_val,
+				    sizeof(digest_val),
+				    0x0,
+				    (const guint8 *)digest,
+				    sizeof(digest),
+				    0x0,
+				    sizeof(digest_val),
+				    error))
 			return FALSE;
 		g_warning("DIGEST: %u", digest_val);
+		g_warning("DIGEST BE: %u", GUINT32_TO_BE(digest_val)); /* nocheck:blocked */
+		g_warning("DIGEST POINTER: %u", *((guint32 *)digest));
 
 		fu_struct_cros_ec_update_frame_header_set_cmd_block_digest(ufh, digest_val);
 	}
@@ -697,6 +707,7 @@ fu_cros_ec_usb_device_send_done(FuCrosEcUsbDevice *self)
 					   FALSE,
 					   NULL,
 					   &error_local)) {
+		g_warning("DEBUG: SEND DONE ERROR (BAD)");
 		g_debug("error on transfer of done: %s", error_local->message);
 	}
 }
@@ -739,6 +750,7 @@ fu_cros_ec_usb_device_unlock_rw(FuCrosEcUsbDevice *self, GError **error)
 	guint8 command_body[2] = {0x0}; /* max command body size */
 	gsize command_body_size = 0;
 	gsize response_size = 1;
+	g_warning("DEBUG: SEND UNLOCK RW");
 
 	if (!fu_cros_ec_usb_device_send_subcommand(self,
 						   subcommand,
@@ -752,6 +764,7 @@ fu_cros_ec_usb_device_unlock_rw(FuCrosEcUsbDevice *self, GError **error)
 		return FALSE;
 	}
 
+	g_warning("DEBUG: SEND UNLOCK RW SUCCESS");
 	/* success */
 	return TRUE;
 }
@@ -847,6 +860,8 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 
 	fu_device_remove_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL);
 
+	g_warning("WRITE ROUND START DEVICE GENERIC (BAD)");
+
 	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO)) {
 		g_autoptr(FuStructCrosEcFirstResponsePdu) st_rpdu =
 		    fu_struct_cros_ec_first_response_pdu_new();
@@ -870,8 +885,8 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 				     st_rpdu,
 				     error)) {
 			g_prefix_error_literal(error, "failed to send start request: ");
-			return FALSE;
 		}
+		return FALSE;
 	}
 
 	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
@@ -1046,6 +1061,7 @@ fu_cros_ec_usb_device_detach(FuDevice *device, FuProgress *progress, GError **er
 static void
 fu_cros_ec_usb_device_replace(FuDevice *device, FuDevice *donor)
 {
+	g_warning("DEBUG: REPLACING DEVICE");
 	if (fu_device_has_private_flag(donor, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN))
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN);
 	if (fu_device_has_private_flag(donor, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN))
@@ -1054,6 +1070,9 @@ fu_cros_ec_usb_device_replace(FuDevice *device, FuDevice *donor)
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
 	if (fu_device_has_private_flag(donor, FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL))
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL);
+	// EXPERIMENTAL
+	if (fu_device_has_flag(donor, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED))
+		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
 }
 
 static gboolean

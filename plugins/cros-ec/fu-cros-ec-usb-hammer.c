@@ -45,6 +45,7 @@ fu_cros_ec_usb_hammer_write_touchpad_firmware(FuDevice *device,
 	g_autoptr(GPtrArray) blocks = NULL;
 	g_autoptr(FuStructCrosEcFirstResponsePdu) st_rpdu =
 	    fu_struct_cros_ec_first_response_pdu_new();
+	g_warning("DEBUG: START WRITE TOUCHAPD BEFORE");
 
 	/* send start request */
 	if (!fu_device_retry(device,
@@ -128,23 +129,28 @@ fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
 	g_autoptr(GPtrArray) sections = NULL;
 	FuCrosEcFirmware *cros_ec_firmware = FU_CROS_EC_FIRMWARE(firmware);
 
+	g_warning("DEBUG: ENTERING WRITE BASE EC");
+
 	fu_device_remove_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL);
 
-	g_warning("WRITE ROUND START");
+	g_warning("WRITE ROUND START BASE EC");
 
 	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO)) {
 		g_autoptr(FuStructCrosEcFirstResponsePdu) st_rpdu =
 		    fu_struct_cros_ec_first_response_pdu_new();
+		g_warning("DEBUG: AREA 1");
 
 		fu_device_remove_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
 		if (!fu_cros_ec_usb_device_stay_in_ro(FU_CROS_EC_USB_DEVICE(self), error)) {
 			g_prefix_error_literal(error, "failed to send stay-in-ro subcommand: ");
+			g_warning("DEBUG: AREA 1.1");
 			return FALSE;
 		}
 
 		/* flush all data from endpoint to recover in case of error */
 		if (!fu_cros_ec_usb_device_recovery(FU_CROS_EC_USB_DEVICE(self), error)) {
 			g_prefix_error_literal(error, "failed to flush device to idle state: ");
+			g_warning("DEBUG: AREA 1.2");
 			return FALSE;
 		}
 
@@ -154,13 +160,16 @@ fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
 				     FU_CROS_EC_SETUP_RETRY_CNT,
 				     st_rpdu,
 				     error)) {
+			g_warning("DEBUG: AREA 1.3");
 			g_prefix_error_literal(error, "failed to send start request: ");
 			return FALSE;
 		}
+		g_warning("DEBUG: AREA 1 DONE");
 	}
 
 	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
 	    fu_cros_ec_usb_device_get_in_bootloader(FU_CROS_EC_USB_DEVICE(self))) {
+		g_warning("DEBUG: AREA 2");
 		/*
 		 * We had previously written to the rw region (while we were
 		 * booted from ro region), but somehow landed in ro again after
@@ -176,7 +185,9 @@ fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
 		 * device restart status.
 		 */
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL);
+		g_warning("DEBUG: ADDING AWR");
 		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
+		g_warning("DEBUG: AREA 2 DONE");
 		return TRUE;
 	}
 
@@ -196,15 +207,22 @@ fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
 	    (!fu_cros_ec_usb_device_get_in_bootloader(FU_CROS_EC_USB_DEVICE(self)) ||
 	     (fu_cros_ec_usb_device_get_flash_protection(FU_CROS_EC_USB_DEVICE(self)) & (1 << 8)) !=
 		 0)) {
+		g_warning("DEBUG: AREA 3");
 		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
-		if (!fu_cros_ec_usb_device_unlock_rw(FU_CROS_EC_USB_DEVICE(self), error))
+		if (!fu_cros_ec_usb_device_unlock_rw(FU_CROS_EC_USB_DEVICE(self), error)) {
+			g_warning("DEBUG: AREA 3 ERROR (BAD)");
 			return FALSE;
+		}
+		g_warning("DEBUG: AREA 3 DONE");
 		return TRUE;
 	}
 
+	g_warning("DEBUG: AREA 4");
 	sections = fu_cros_ec_firmware_get_needed_sections(cros_ec_firmware, error);
-	if (sections == NULL)
+	if (sections == NULL) {
+		g_warning("DEBUG: NO SECTIONS FOUND (BAD)");
 		return FALSE;
+	}
 
 	g_warning("DEBUG: STARTING EC UPDATE");
 	if (fu_cros_ec_usb_device_get_in_bootloader(FU_CROS_EC_USB_DEVICE(self)))
@@ -258,8 +276,10 @@ fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
 
 	/* logical XOR */
 	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) !=
-	    fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN))
+	    fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN)) {
+		g_warning("DEBUG: ADDING AWR");
 		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
+	}
 
 	/* success */
 	return TRUE;
