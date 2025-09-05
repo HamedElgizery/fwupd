@@ -75,3 +75,9 @@ fu_cros_ec_usb_device_transfer_section(FuCrosEcUsbDevice *self,
 				       GError **error);
 gboolean
 fu_cros_ec_usb_device_stay_in_ro(FuCrosEcUsbDevice *self, GError **error);
+
+void
+fu_cros_ec_usb_device_reset_to_ro(FuCrosEcUsbDevice *self);
+
+gboolean
+fu_cros_ec_usb_device_jump_to_rw(FuCrosEcUsbDevice *self);
