@@ -374,16 +374,15 @@ fu_cros_ec_usb_hammer_detach(FuDevice *device, FuProgress *progress, GError **er
 		return TRUE;
 	}
 
-	// fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN);
-	/*
 	if (fu_cros_ec_usb_device_get_flash_protection(FU_CROS_EC_USB_DEVICE(self)) != 0x0) {
-		 in RW, and RO region is write protected, so jump to RO
+		g_warning("HELLO");
+		/* in RW, and RO region is write protected, so jump to RO  */
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
+		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN);
 		fu_cros_ec_usb_device_reset_to_ro(FU_CROS_EC_USB_DEVICE(self));
 		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_WAIT_FOR_REPLUG);
 		return TRUE;
 	}
-	*/
 
 	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN)) {
 		/* get RW updated first thing */
@@ -401,6 +400,8 @@ fu_cros_ec_usb_hammer_reload(FuDevice *device, GError **error)
 {
 	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
 	    fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO))
+		return TRUE;
+	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN))
 		return TRUE;
 	g_warning("FOUND YOU BUG");
 	fu_device_remove_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
