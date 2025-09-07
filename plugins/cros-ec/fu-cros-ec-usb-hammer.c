@@ -191,25 +191,31 @@ fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
 		return TRUE;
 	}
 
-	/*
-	 * If it is turn to update RW section, two conditions need
-	 * to be satisfied:
-	 *   1. ec has to be in bootloader mode
-	 *   2. RW Flash protection has to be disabled (enabled by default).
-	 *
-	 * We set another ANOTHER_WRITE_REQUIRED if any of the conditions is not met.
-	 *
-	 * Proceed with unlocking the the RW flash protection and rebooting
-	 * the device, attempting to land in bootloader mode with RW flash
-	 * protection disabled with the next write attempt.
-	 */
-	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN)) {
-		if (!fu_cros_ec_usb_device_get_in_bootloader(FU_CROS_EC_USB_DEVICE(self))) {
-			/* should have already reset to bootloader mode when detaching */
+	g_warning("DEBUG: AREA 4");
+	sections = fu_cros_ec_firmware_get_needed_sections(cros_ec_firmware, error);
+	if (sections == NULL) {
+		g_warning("DEBUG: NO SECTIONS FOUND (BAD)");
+		return FALSE;
+	}
+
+	/* In RO, and it is turn to write RW firmware */
+	if (fu_cros_ec_usb_device_get_in_bootloader(FU_CROS_EC_USB_DEVICE(self))) {
+		FuCrosEcFirmwareSection *section = g_ptr_array_index(sections, 0);
+		g_warning("KEY_VERSION: %d",
+			  fu_cros_ec_usb_device_get_key_version(FU_CROS_EC_USB_DEVICE(self)));
+		g_warning("MIN_ROLLBACK: %d",
+			  fu_cros_ec_usb_device_get_min_rollback(FU_CROS_EC_USB_DEVICE(self)));
+		g_warning("SECTION KEY_VERSION: %d", section->key_version);
+		g_warning("SECTION MIN_ROLLBACK: %d", section->rollback);
+		g_warning("FLASH_PROTECTION: %d",
+			  fu_cros_ec_usb_device_get_flash_protection(FU_CROS_EC_USB_DEVICE(self)));
+		if (section->key_version !=
+		    fu_cros_ec_usb_device_get_key_version(FU_CROS_EC_USB_DEVICE(self))) {
+			g_warning("EXITING HERE");
 			g_set_error_literal(error,
 					    FWUPD_ERROR,
-					    FWUPD_ERROR_INTERNAL,
-					    "failed to detach to bootloader mode before RW write");
+					    FWUPD_ERROR_INVALID_DATA,
+					    "RW not compatible with RO section, aborting...");
 			return FALSE;
 		}
 		if ((fu_cros_ec_usb_device_get_flash_protection(FU_CROS_EC_USB_DEVICE(self)) &
@@ -224,13 +230,6 @@ fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
 			g_warning("DEBUG: AREA 3 DONE");
 			return TRUE;
 		}
-	}
-
-	g_warning("DEBUG: AREA 4");
-	sections = fu_cros_ec_firmware_get_needed_sections(cros_ec_firmware, error);
-	if (sections == NULL) {
-		g_warning("DEBUG: NO SECTIONS FOUND (BAD)");
-		return FALSE;
 	}
 
 	g_warning("DEBUG: STARTING EC UPDATE");
@@ -324,90 +323,6 @@ fu_cros_ec_usb_hammer_setup(FuDevice *device, GError **error)
 	return TRUE;
 }
 
-static gboolean
-fu_cros_ec_usb_hammer_attach(FuDevice *device, FuProgress *progress, GError **error)
-{
-	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
-
-	if (fu_cros_ec_usb_device_get_in_bootloader(FU_CROS_EC_USB_DEVICE(self)) &&
-	    fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL)) {
-		/*
-		 * attach after the SPECIAL flag was set. The EC will auto-jump
-		 * from ro -> rw, so we do not need to send an explicit
-		 * reset_to_ro. We just need to set for another wait for replug
-		 * as a detach + reenumeration is expected as we jump from
-		 * ro -> rw.
-		 */
-		fu_device_remove_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL);
-		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_WAIT_FOR_REPLUG);
-		return TRUE;
-	}
-
-	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN)) {
-		g_warning("DEBUG: REBOOTING TO RO FLAG ADDED");
-		fu_device_add_private_flag(FU_DEVICE(self),
-					   FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
-		fu_cros_ec_usb_device_reset_to_ro(FU_CROS_EC_USB_DEVICE(self));
-	} else {
-		fu_cros_ec_usb_device_jump_to_rw(FU_CROS_EC_USB_DEVICE(self));
-	}
-	fu_device_add_flag(device, FWUPD_DEVICE_FLAG_WAIT_FOR_REPLUG);
-
-	/* success */
-	return TRUE;
-}
-
-static gboolean
-fu_cros_ec_usb_hammer_detach(FuDevice *device, FuProgress *progress, GError **error)
-{
-	FuCrosEcUsbHammer *self = FU_CROS_EC_USB_HAMMER(device);
-
-	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
-	    !fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN))
-		return TRUE;
-
-	if (fu_cros_ec_usb_device_get_in_bootloader(FU_CROS_EC_USB_DEVICE(self))) {
-		/* If EC just rebooted - prevent jumping to RW during the update */
-		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
-		g_debug("skipping immediate reboot in case of already in bootloader");
-		/* in RO so skip reboot */
-		return TRUE;
-	}
-
-	if (fu_cros_ec_usb_device_get_flash_protection(FU_CROS_EC_USB_DEVICE(self)) != 0x0) {
-		g_warning("HELLO");
-		/* in RW, and RO region is write protected, so jump to RO  */
-		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
-		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN);
-		fu_cros_ec_usb_device_reset_to_ro(FU_CROS_EC_USB_DEVICE(self));
-		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_WAIT_FOR_REPLUG);
-		return TRUE;
-	}
-
-	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN)) {
-		/* get RW updated first thing */
-		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
-		fu_cros_ec_usb_device_reset_to_ro(FU_CROS_EC_USB_DEVICE(self));
-		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_WAIT_FOR_REPLUG);
-	}
-
-	/* success */
-	return TRUE;
-}
-
-static gboolean
-fu_cros_ec_usb_hammer_reload(FuDevice *device, GError **error)
-{
-	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
-	    fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO))
-		return TRUE;
-	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN))
-		return TRUE;
-	g_warning("FOUND YOU BUG");
-	fu_device_remove_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
-	return TRUE;
-}
-
 static void
 fu_cros_ec_usb_hammer_init(FuCrosEcUsbHammer *self)
 {
@@ -419,7 +334,7 @@ fu_cros_ec_usb_hammer_class_init(FuCrosEcUsbHammerClass *klass)
 	FuDeviceClass *device_class = FU_DEVICE_CLASS(klass);
 	device_class->setup = fu_cros_ec_usb_hammer_setup;
 	device_class->write_firmware = fu_cros_ec_usb_hammer_write_base_ec_firmware;
-	device_class->attach = fu_cros_ec_usb_hammer_attach;
-	device_class->detach = fu_cros_ec_usb_hammer_detach;
-	device_class->reload = fu_cros_ec_usb_hammer_reload;
+	// device_class->attach = fu_cros_ec_usb_hammer_attach;
+	// device_class->detach = fu_cros_ec_usb_hammer_detach;
+	// device_class->reload = fu_cros_ec_usb_hammer_reload;
 }

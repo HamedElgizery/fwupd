@@ -16,14 +16,14 @@
 #include "fu-cros-ec-usb-hammer.h"
 
 #define ST_VENDOR_ID   0x0483
-#define ELAN_VENDOR_ID 0x04f3
+#define ELAN_VENDOR_ID 0x04F3
 
 typedef struct {
 	guint16 vendor;
 	guint32 fw_address;
 	guint32 fw_size;
 	guint8 *allowed_fw_hash;
-	guint16 id;
+	guint16 product_id;
 	guint16 fw_version;
 	guint16 fw_checksum;
 	gboolean is_reenumerated; // Data can be populated only when ec is in runtime mode.
@@ -61,7 +61,7 @@ fu_cros_ec_hammer_touchpad_set_metadata(FuCrosEcHammerTouchpad *self, GError **e
 		base_fw_ver = g_strdup_printf("%d.%d",
 					      priv->fw_version & 0x00ff,
 					      (priv->fw_version & 0xff00) >> 8);
-		vendor_name = g_strdup("STMicroelectronics");
+		vendor_name = g_strdup("STM");
 		break;
 	case ELAN_VENDOR_ID:
 		base_fw_ver = g_strdup_printf("%d.0", priv->fw_version);
@@ -114,9 +114,11 @@ fu_cros_ec_hammer_touchpad_get_info(FuCrosEcHammerTouchpad *self, GError **error
 						   command_body_size,
 						   response,
 						   &response_size,
-						   FALSE,
+						   FALSE, /* allow_less */
 						   &error_local)) {
-		g_prefix_error_literal(error, "failed to retrieve touchpad info");
+		g_propagate_prefixed_error(error,
+					   g_steal_pointer(&error_local),
+					   "failed to retrieve touchpad info: ");
 		return FALSE;
 	}
 
@@ -140,7 +142,7 @@ fu_cros_ec_hammer_touchpad_get_info(FuCrosEcHammerTouchpad *self, GError **error
 	    (guint8 *)fu_struct_cros_ec_touchpad_get_info_response_pdu_get_allowed_fw_hash(tpi_rpdu,
 											   &bufsz);
 	priv->allowed_fw_hash = g_memdup2(buffer, bufsz);
-	priv->id = fu_struct_cros_ec_touchpad_get_info_response_pdu_get_id(tpi_rpdu);
+	priv->product_id = fu_struct_cros_ec_touchpad_get_info_response_pdu_get_id(tpi_rpdu);
 	priv->fw_version =
 	    fu_struct_cros_ec_touchpad_get_info_response_pdu_get_fw_version(tpi_rpdu);
 	priv->fw_checksum =
@@ -231,20 +233,10 @@ fu_cros_ec_hammer_touchpad_firmware_validate(FuDevice *device, FuFirmware *firmw
 		g_set_error_literal(error,
 				    FWUPD_ERROR,
 				    FWUPD_ERROR_INVALID_DATA,
-				    "Touchpad firmware mismatches hash in RW EC.");
+				    "Touchpad firmware does not match allowed firmware");
 		return FALSE;
 	}
 
-	// TODO: Check product if product id matches
-	/*
-	 * In hammerd, this was done by comparing the product_id
-	 * from the touchpad firmware file name, and compare it with
-	 * the product id saved within the EC.
-	 * There is no direct way to do the comparison here, and is probably
-	 * not needed since we already do match the firmware file with the device
-	 * through GUIDs... Also there is no files to compare with instead the updates
-	 * is usually done through cab files. Suggesting to skip this.
-	 */
 	return TRUE;
 }
 
@@ -356,8 +348,8 @@ fu_cros_ec_hammer_touchpad_to_string(FuDevice *device, guint idt, GString *str)
 {
 	FuCrosEcHammerTouchpad *self = FU_CROS_EC_HAMMER_TOUCHPAD(device);
 	FuCrosEcHammerTouchpadPrivate *priv = GET_PRIVATE(self);
-	// TODO: Retake a look on what is important
 	fwupd_codec_string_append_int(str, idt, "Vendor", priv->vendor);
+	fwupd_codec_string_append_hex(str, idt, "ProductId", priv->product_id);
 	fwupd_codec_string_append_hex(str, idt, "FwAddress", priv->fw_address);
 	fwupd_codec_string_append_int(str, idt, "RawVersion", priv->fw_version);
 }
@@ -366,10 +358,10 @@ static void
 fu_cros_ec_hammer_touchpad_set_progress(FuDevice *self, FuProgress *progress)
 {
 	fu_progress_set_id(progress, G_STRLOC);
-	fu_progress_add_step(progress, FWUPD_STATUS_DECOMPRESSING, 0, "prepare-fw");
+	fu_progress_add_step(progress, FWUPD_STATUS_DECOMPRESSING, 5, "prepare-fw");
 	fu_progress_add_step(progress, FWUPD_STATUS_DEVICE_RESTART, 0, "detach");
-	fu_progress_add_step(progress, FWUPD_STATUS_DEVICE_WRITE, 100, "write");
-	fu_progress_add_step(progress, FWUPD_STATUS_DEVICE_RESTART, 0, "attach");
+	fu_progress_add_step(progress, FWUPD_STATUS_DEVICE_WRITE, 80, "write");
+	fu_progress_add_step(progress, FWUPD_STATUS_DEVICE_RESTART, 15, "attach");
 	fu_progress_add_step(progress, FWUPD_STATUS_DEVICE_BUSY, 0, "reload");
 }
 

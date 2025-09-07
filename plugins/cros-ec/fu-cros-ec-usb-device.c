@@ -33,6 +33,8 @@ typedef struct {
 	guint32 flash_protection;
 	guint32 writeable_offset;
 	guint16 protocol_version;
+	guint32 min_rollback;
+	guint32 key_version;
 	gchar configuration[FU_STRUCT_CROS_EC_FIRST_RESPONSE_PDU_SIZE_VERSION];
 	gboolean in_bootloader;
 } FuCrosEcUsbDevicePrivate;
@@ -64,6 +66,20 @@ fu_cros_ec_usb_device_get_in_bootloader(FuCrosEcUsbDevice *self)
 {
 	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	return priv->in_bootloader;
+}
+
+gboolean
+fu_cros_ec_usb_device_get_min_rollback(FuCrosEcUsbDevice *self)
+{
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
+	return priv->min_rollback;
+}
+
+gboolean
+fu_cros_ec_usb_device_get_key_version(FuCrosEcUsbDevice *self)
+{
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
+	return priv->key_version;
 }
 
 static gboolean
@@ -410,6 +426,13 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 	priv->raw_version = fu_struct_cros_ec_first_response_pdu_get_version(st_rpdu);
 	priv->maximum_pdu_size = fu_struct_cros_ec_first_response_pdu_get_maximum_pdu_size(st_rpdu);
 	priv->flash_protection = fu_struct_cros_ec_first_response_pdu_get_flash_protection(st_rpdu);
+	priv->min_rollback = fu_struct_cros_ec_first_response_pdu_get_min_rollback(st_rpdu);
+	priv->key_version = fu_struct_cros_ec_first_response_pdu_get_key_version(st_rpdu);
+
+	g_warning("KEY_VERSION: %d", fu_struct_cros_ec_first_response_pdu_get_key_version(st_rpdu));
+	g_warning("MIN_ROLLBACK: %d",
+		  fu_struct_cros_ec_first_response_pdu_get_min_rollback(st_rpdu));
+	g_warning("IN BOOTLOADER: %d", priv->in_bootloader);
 
 	/* get active version string and running region from iConfiguration */
 	if (!fu_cros_ec_usb_device_get_configuration(self, error))
@@ -811,6 +834,7 @@ fu_cros_ec_usb_device_jump_to_rw(FuCrosEcUsbDevice *self)
 						   &response_size,
 						   FALSE,
 						   &error_local)) {
+		g_warning("DEBUG: JUMP TO RW FAILED (BAD)");
 		/* bail out early here if subcommand failed, which is normal */
 		g_debug("ignoring failure: jump to rw: %s", error_local->message);
 		return TRUE;
@@ -818,6 +842,7 @@ fu_cros_ec_usb_device_jump_to_rw(FuCrosEcUsbDevice *self)
 
 	/* Jump to rw may not work, so if we've reached here, initiate a
 	 * full reset using immediate reset */
+	g_warning("DEBUG: REST TO RO SEND");
 	fu_cros_ec_usb_device_reset_to_ro(self);
 
 	/* success */
@@ -1023,6 +1048,7 @@ fu_cros_ec_usb_device_attach(FuDevice *device, FuProgress *progress, GError **er
 		fu_cros_ec_usb_device_reset_to_ro(self);
 	} else {
 		fu_cros_ec_usb_device_jump_to_rw(self);
+		g_warning("DEBUG: JUMP TO RW SENT");
 	}
 	fu_device_add_flag(device, FWUPD_DEVICE_FLAG_WAIT_FOR_REPLUG);
 

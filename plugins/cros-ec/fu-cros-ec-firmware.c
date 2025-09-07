@@ -78,8 +78,11 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 		FuCrosEcFirmwareSection *section = g_ptr_array_index(self->sections, i);
 		const gchar *fmap_name;
 		const gchar *fmap_fwid_name;
+		const gchar *fmap_rollback_name;
+		const gchar *fmap_key_name;
 		g_autoptr(FuCrosEcVersion) version = NULL;
 		g_autoptr(FuFirmware) img = NULL;
+		g_autoptr(FuFirmware) img_version = NULL;
 		g_autoptr(FuFirmware) fwid_img = NULL;
 		g_autoptr(GBytes) payload_bytes = NULL;
 		g_autoptr(GBytes) fwid_bytes = NULL;
@@ -91,6 +94,10 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 			rw = TRUE;
 			fmap_name = "EC_RW";
 			fmap_fwid_name = "RW_FWID";
+			fmap_rollback_name = "RW_RBVER";
+			// Key version comes from key RO (RW signature does not
+			// contain the key version.
+			fmap_key_name = "KEY_RO";
 		} else {
 			g_set_error_literal(error,
 					    FWUPD_ERROR,
@@ -130,8 +137,14 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 			g_prefix_error(error, "unable to get bytes from %s: ", fmap_name);
 			return FALSE;
 		}
+		if (rw)
+			g_warning("RW OFFSET: ");
+		else
+			g_warning("RO OFFSET: ");
 		section->offset = fu_firmware_get_addr(img);
+		g_warning("%d", section->offset);
 		section->size = g_bytes_get_size(payload_bytes);
+		g_warning("SIZE: %d", section->size);
 		fu_firmware_set_version(img, section->raw_version);
 		section->image_idx = fu_firmware_get_idx(img);
 
@@ -153,6 +166,35 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 				return FALSE;
 			}
 			fu_firmware_set_version(FU_FIRMWARE(self), version_rw->triplet);
+
+			img = fu_firmware_get_image_by_id(FU_FIRMWARE(self),
+							  fmap_rollback_name,
+							  error);
+			if (img == NULL) {
+				g_prefix_error(error, "%s image not found: ", fmap_name);
+				return FALSE;
+			}
+			g_warning("ROLLBACK_OFFSET: %d", fu_firmware_get_addr(img));
+			payload_bytes = fu_firmware_write(img, error);
+			g_warning("ROLLBACK_SIZE: %d", g_bytes_get_size(payload_bytes));
+			if (!fu_memcpy_safe((guint8 *)&section->rollback,
+					    sizeof(section->rollback),
+					    0x0,
+					    g_bytes_get_data(payload_bytes, NULL),
+					    g_bytes_get_size(payload_bytes),
+					    0x0,
+					    sizeof(section->rollback),
+					    error))
+				return FALSE;
+			img = fu_firmware_get_image_by_id(FU_FIRMWARE(self), fmap_key_name, error);
+			payload_bytes = fu_firmware_write(img, error);
+			FuStructCrosEcVb21PackedKey *vb21_packed_key =
+			    fu_firmware_write(img, error);
+			g_warning(
+			    "KEY_VERSION: %d",
+			    fu_struct_cros_ec_vb21_packed_key_get_key_version(vb21_packed_key));
+			section->key_version =
+			    fu_struct_cros_ec_vb21_packed_key_get_key_version(vb21_packed_key);
 		}
 	}
 

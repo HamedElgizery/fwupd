@@ -81,3 +81,9 @@ fu_cros_ec_usb_device_reset_to_ro(FuCrosEcUsbDevice *self);
 
 gboolean
 fu_cros_ec_usb_device_jump_to_rw(FuCrosEcUsbDevice *self);
+
+gboolean
+fu_cros_ec_usb_device_get_min_rollback(FuCrosEcUsbDevice *self);
+
+gboolean
+fu_cros_ec_usb_device_get_key_version(FuCrosEcUsbDevice *self);
