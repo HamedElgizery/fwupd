@@ -84,8 +84,13 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 		g_autoptr(FuFirmware) img = NULL;
 		g_autoptr(FuFirmware) img_version = NULL;
 		g_autoptr(FuFirmware) fwid_img = NULL;
+		g_autoptr(FuFirmware) rbver_img = NULL;
+		g_autoptr(FuFirmware) key_img = NULL;
 		g_autoptr(GBytes) payload_bytes = NULL;
 		g_autoptr(GBytes) fwid_bytes = NULL;
+		g_autoptr(GBytes) rbver_bytes = NULL;
+		g_autoptr(GBytes) key_bytes = NULL;
+		const FuStructCrosEcVb21PackedKey *vb21_packed_key = NULL;
 
 		if (g_strcmp0(section->name, "RO") == 0) {
 			fmap_name = "EC_RO";
@@ -95,9 +100,10 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 			fmap_name = "EC_RW";
 			fmap_fwid_name = "RW_FWID";
 			fmap_rollback_name = "RW_RBVER";
-			// Key version comes from key RO (RW signature does not
-			// contain the key version.
+			//   Key version comes from key RO (RW signature does not
+			//   contain the key version.
 			fmap_key_name = "KEY_RO";
+			g_warning("READING FIRMWARE");
 		} else {
 			g_set_error_literal(error,
 					    FWUPD_ERROR,
@@ -106,22 +112,26 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 			return FALSE;
 		}
 
+		g_warning("READING FIRMWARE1");
 		img = fu_firmware_get_image_by_id(FU_FIRMWARE(self), fmap_name, error);
 		if (img == NULL) {
 			g_prefix_error(error, "%s image not found: ", fmap_name);
 			return FALSE;
 		}
 
+		g_warning("READING FIRMWARE2");
 		fwid_img = fu_firmware_get_image_by_id(FU_FIRMWARE(self), fmap_fwid_name, error);
 		if (fwid_img == NULL) {
 			g_prefix_error(error, "%s image not found: ", fmap_fwid_name);
 			return FALSE;
 		}
+		g_warning("READING FIRMWARE3");
 		fwid_bytes = fu_firmware_write(fwid_img, error);
 		if (fwid_bytes == NULL) {
 			g_prefix_error(error, "unable to get bytes from %s: ", fmap_fwid_name);
 			return FALSE;
 		}
+		g_warning("READING FIRMWARE4");
 		if (!fu_memcpy_safe((guint8 *)section->raw_version,
 				    FU_FMAP_FIRMWARE_STRLEN,
 				    0x0,
@@ -132,19 +142,15 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 				    error))
 			return FALSE;
 
+		g_warning("READING FIRMWARE5");
 		payload_bytes = fu_firmware_write(img, error);
 		if (payload_bytes == NULL) {
 			g_prefix_error(error, "unable to get bytes from %s: ", fmap_name);
 			return FALSE;
 		}
-		if (rw)
-			g_warning("RW OFFSET: ");
-		else
-			g_warning("RO OFFSET: ");
+		g_warning("READING FIRMWARE6");
 		section->offset = fu_firmware_get_addr(img);
-		g_warning("%d", section->offset);
 		section->size = g_bytes_get_size(payload_bytes);
-		g_warning("SIZE: %d", section->size);
 		fu_firmware_set_version(img, section->raw_version);
 		section->image_idx = fu_firmware_get_idx(img);
 
@@ -155,9 +161,11 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 				       section->raw_version);
 			return FALSE;
 		}
+		g_warning("READING FIRMWARE7");
 
 		if (rw) {
 			g_autoptr(FuCrosEcVersion) version_rw = NULL;
+			g_warning("READING FIRMWARE8");
 			version_rw = fu_cros_ec_version_parse(section->raw_version, error);
 			if (version_rw == NULL) {
 				g_prefix_error(error,
@@ -165,36 +173,72 @@ fu_cros_ec_firmware_ensure_version(FuCrosEcFirmware *self, GError **error)
 					       section->raw_version);
 				return FALSE;
 			}
+			g_warning("READING FIRMWARE9");
 			fu_firmware_set_version(FU_FIRMWARE(self), version_rw->triplet);
+			g_warning("READING FIRMWARE10");
 
-			img = fu_firmware_get_image_by_id(FU_FIRMWARE(self),
-							  fmap_rollback_name,
-							  error);
-			if (img == NULL) {
-				g_prefix_error(error, "%s image not found: ", fmap_name);
-				return FALSE;
+			/* failure is okay, means firmware has no rollback section */
+			rbver_img = fu_firmware_get_image_by_id(FU_FIRMWARE(self),
+								fmap_rollback_name,
+								NULL);
+			g_warning("READING FIRMWARE11");
+			if (rbver_img == NULL) {
+				g_info("%s image not found: ", fmap_rollback_name);
+				section->rollback = -1;
+			} else {
+				rbver_bytes = fu_firmware_write(rbver_img, error);
+				if (rbver_bytes == NULL) {
+					g_warning("NO OK RB");
+					g_prefix_error(error,
+						       "unable to get bytes from %s: ",
+						       fmap_rollback_name);
+					return FALSE;
+				}
+				g_warning("READING FIRMWARE12");
+				if (!fu_memcpy_safe((guint8 *)&section->rollback,
+						    sizeof(section->rollback),
+						    0x0,
+						    g_bytes_get_data(rbver_bytes, NULL),
+						    g_bytes_get_size(rbver_bytes),
+						    0x0,
+						    sizeof(section->rollback),
+						    error)) {
+					g_warning("NO OK RB2");
+					return FALSE;
+				}
 			}
-			g_warning("ROLLBACK_OFFSET: %d", fu_firmware_get_addr(img));
-			payload_bytes = fu_firmware_write(img, error);
-			g_warning("ROLLBACK_SIZE: %d", g_bytes_get_size(payload_bytes));
-			if (!fu_memcpy_safe((guint8 *)&section->rollback,
-					    sizeof(section->rollback),
-					    0x0,
-					    g_bytes_get_data(payload_bytes, NULL),
-					    g_bytes_get_size(payload_bytes),
-					    0x0,
-					    sizeof(section->rollback),
-					    error))
-				return FALSE;
-			img = fu_firmware_get_image_by_id(FU_FIRMWARE(self), fmap_key_name, error);
-			payload_bytes = fu_firmware_write(img, error);
-			FuStructCrosEcVb21PackedKey *vb21_packed_key =
-			    fu_firmware_write(img, error);
-			g_warning(
-			    "KEY_VERSION: %d",
-			    fu_struct_cros_ec_vb21_packed_key_get_key_version(vb21_packed_key));
-			section->key_version =
-			    fu_struct_cros_ec_vb21_packed_key_get_key_version(vb21_packed_key);
+
+			g_warning("READING FIRMWARE13");
+			/* failure is okay, means firmware has no key version section */
+			key_img =
+			    fu_firmware_get_image_by_id(FU_FIRMWARE(self), fmap_key_name, NULL);
+			if (key_img == NULL) {
+				g_warning("READING FIRMWARE14");
+				g_info("%s image not found: ", fmap_key_name);
+				section->key_version = -1;
+			} else {
+				// guint32 sz = 0;
+				g_warning("READING FIRMWARE15");
+				key_bytes = fu_firmware_write(key_img, error);
+				if (key_bytes == NULL) {
+					g_warning("NO OK KEY");
+					g_prefix_error(error,
+						       "unable to get bytes from %s: ",
+						       fmap_key_name);
+					return FALSE;
+				}
+				// g_warning("%lu", g_bytes_get_size(key_bytes));
+				// g_warning("%u", sizeof(FuStructCrosEcVb21PackedKey));
+				vb21_packed_key =
+				    (const FuStructCrosEcVb21PackedKey *)g_bytes_get_data(key_bytes,
+											  NULL);
+
+				section->key_version =
+				    fu_struct_cros_ec_vb21_packed_key_get_key_version(
+					vb21_packed_key);
+				g_warning("READING FIRMWARE17");
+			}
+			g_warning("READING OK");
 		}
 	}
 

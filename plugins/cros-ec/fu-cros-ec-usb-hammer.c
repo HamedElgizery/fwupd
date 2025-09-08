@@ -119,6 +119,95 @@ fu_cros_ec_usb_hammer_write_touchpad_firmware(FuDevice *device,
 }
 
 static gboolean
+fu_cros_ec_usb_hammer_transfer_section(FuCrosEcUsbHammer *self,
+				       FuFirmware *firmware,
+				       FuCrosEcFirmwareSection *section,
+				       FuProgress *progress,
+				       GError **error)
+{
+	const guint8 *data_ptr = NULL;
+	gsize data_len = 0;
+	g_autoptr(GBytes) img_bytes = NULL;
+	g_autoptr(GPtrArray) blocks = NULL;
+	g_autoptr(FuStructCrosEcFirstResponsePdu) st_rpdu =
+	    fu_struct_cros_ec_first_response_pdu_new();
+	guint32 maximum_pdu_size;
+
+	g_return_val_if_fail(section != NULL, FALSE);
+
+	/* send start request */
+	if (!fu_device_retry(FU_DEVICE(self),
+			     fu_cros_ec_usb_device_start_request_cb,
+			     FU_CROS_EC_SETUP_RETRY_CNT,
+			     st_rpdu,
+			     error)) {
+		g_prefix_error_literal(error, "failed to send start request: ");
+		return FALSE;
+	}
+
+	maximum_pdu_size = fu_struct_cros_ec_first_response_pdu_get_maximum_pdu_size(st_rpdu);
+
+	g_warning("MAX_PDU_SZ: %u", maximum_pdu_size);
+
+	img_bytes = fu_firmware_get_image_by_idx_bytes(firmware, section->image_idx, error);
+	if (img_bytes == NULL) {
+		g_prefix_error_literal(error, "failed to find section image: ");
+		return FALSE;
+	}
+
+	data_ptr = (const guint8 *)g_bytes_get_data(img_bytes, &data_len);
+	if (data_ptr == NULL || data_len != section->size) {
+		g_set_error(error,
+			    FWUPD_ERROR,
+			    FWUPD_ERROR_INVALID_DATA,
+			    "image (0x%x bytes) and section (0x%x bytes) sizes do not match",
+			    (guint)data_len,
+			    (guint)section->size);
+		return FALSE;
+	}
+
+	// TODO (experimental): Smart update removed (Not in hammerd)
+	/* smart update: trim trailing bytes
+	while (data_len > 1 && (data_ptr[data_len - 1] == 0xff))
+		data_len--;
+	g_debug("trimmed %" G_GSIZE_FORMAT " trailing bytes", section->size - data_len);
+	*/
+
+	g_debug("sending 0x%x bytes to 0x%x", (guint)data_len, section->offset);
+
+	/* send in chunks of PDU size */
+	blocks = fu_chunk_array_new(data_ptr, data_len, section->offset, 0x0, maximum_pdu_size);
+	fu_progress_set_id(progress, G_STRLOC);
+	fu_progress_set_steps(progress, blocks->len);
+	for (guint i = 0; i < blocks->len; i++) {
+		FuCrosEcUsbBlockHelper helper = {
+		    .block = g_ptr_array_index(blocks, i),
+		    .progress = fu_progress_get_child(progress),
+		};
+		if (!fu_device_retry(FU_DEVICE(self),
+				     fu_cros_ec_usb_device_transfer_block_cb,
+				     FU_CROS_EC_MAX_BLOCK_XFER_RETRIES,
+				     &helper,
+				     error)) {
+			g_prefix_error(error, "failed to transfer block 0x%x: ", i);
+			return FALSE;
+		}
+		g_warning("DEBUG: SUCCESS BLOCK 0x%X", i);
+		fu_progress_step_done(progress);
+	}
+
+	/* success */
+	return TRUE;
+}
+
+static gboolean
+fu_cros_ec_usb_hammer_is_valid_key(FuCrosEcUsbHammer *self, FuCrosEcFirmwareSection *section)
+{
+	return fu_cros_ec_usb_device_get_key_version(FU_CROS_EC_USB_DEVICE(self)) ==
+	       section->key_version;
+}
+
+static gboolean
 fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
 					     FuFirmware *firmware,
 					     FuProgress *progress,
@@ -191,32 +280,33 @@ fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
 		return TRUE;
 	}
 
-	g_warning("DEBUG: AREA 4");
 	sections = fu_cros_ec_firmware_get_needed_sections(cros_ec_firmware, error);
-	if (sections == NULL) {
-		g_warning("DEBUG: NO SECTIONS FOUND (BAD)");
+	if (sections == NULL)
 		return FALSE;
-	}
 
 	/* In RO, and it is turn to write RW firmware */
 	if (fu_cros_ec_usb_device_get_in_bootloader(FU_CROS_EC_USB_DEVICE(self))) {
 		FuCrosEcFirmwareSection *section = g_ptr_array_index(sections, 0);
-		g_warning("KEY_VERSION: %d",
+		g_warning("KEY_VERSION: %u",
 			  fu_cros_ec_usb_device_get_key_version(FU_CROS_EC_USB_DEVICE(self)));
-		g_warning("MIN_ROLLBACK: %d",
+		g_warning("MIN_ROLLBACK: %u",
 			  fu_cros_ec_usb_device_get_min_rollback(FU_CROS_EC_USB_DEVICE(self)));
-		g_warning("SECTION KEY_VERSION: %d", section->key_version);
-		g_warning("SECTION MIN_ROLLBACK: %d", section->rollback);
-		g_warning("FLASH_PROTECTION: %d",
+		g_warning("SECTION KEY_VERSION: %u", section->key_version);
+		g_warning("SECTION MIN_ROLLBACK: %u", section->rollback);
+		g_warning("FLASH_PROTECTION: %u",
 			  fu_cros_ec_usb_device_get_flash_protection(FU_CROS_EC_USB_DEVICE(self)));
-		if (section->key_version !=
-		    fu_cros_ec_usb_device_get_key_version(FU_CROS_EC_USB_DEVICE(self))) {
-			g_warning("EXITING HERE");
-			g_set_error_literal(error,
-					    FWUPD_ERROR,
-					    FWUPD_ERROR_INVALID_DATA,
-					    "RW not compatible with RO section, aborting...");
-			return FALSE;
+		if (section->key_version != -1u) {
+			if (!fu_cros_ec_usb_hammer_is_valid_key(self, section)) {
+				g_warning("EXITING HERE");
+				g_set_error_literal(
+				    error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_INVALID_DATA,
+				    "RW not compatible with RO section, aborting...");
+				return FALSE;
+			}
+		} else {
+			g_info("No RO key version found, updating RW unconditionally...");
 		}
 		if ((fu_cros_ec_usb_device_get_flash_protection(FU_CROS_EC_USB_DEVICE(self)) &
 		     (1 << 8)) != 0) {
@@ -245,7 +335,7 @@ fu_cros_ec_usb_hammer_write_base_ec_firmware(FuDevice *device,
 		FuCrosEcFirmwareSection *section = g_ptr_array_index(sections, i);
 		g_autoptr(GError) error_local = NULL;
 
-		if (!fu_cros_ec_usb_device_transfer_section(FU_CROS_EC_USB_DEVICE(self),
+		if (!fu_cros_ec_usb_hammer_transfer_section(self,
 							    firmware,
 							    section,
 							    fu_progress_get_child(progress),
@@ -299,6 +389,7 @@ fu_cros_ec_usb_hammer_ensure_children(FuCrosEcUsbHammer *self, GError **error)
 {
 	FuDevice *device = FU_DEVICE(self);
 	g_autoptr(FuCrosEcHammerTouchpad) touchpad = NULL;
+	g_warning("ENSURE CHILD");
 
 	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_HAS_TOUCHPAD))
 		return TRUE;
@@ -313,11 +404,41 @@ fu_cros_ec_usb_hammer_ensure_children(FuCrosEcUsbHammer *self, GError **error)
 static gboolean
 fu_cros_ec_usb_hammer_setup(FuDevice *device, GError **error)
 {
+	g_warning("SETUP IN HAMMER");
 	if (!fu_cros_ec_usb_device_setup(device, error))
 		return FALSE;
 
 	if (!fu_cros_ec_usb_hammer_ensure_children(FU_CROS_EC_USB_HAMMER(device), error))
 		return FALSE;
+
+	/* success */
+	return TRUE;
+}
+
+static gboolean
+fu_cros_ec_usb_hammer_detach(FuDevice *device, FuProgress *progress, GError **error)
+{
+	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
+	    !fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN))
+		return TRUE;
+
+	if (fu_cros_ec_usb_device_get_in_bootloader(FU_CROS_EC_USB_DEVICE(device))) {
+		/* If EC just rebooted - prevent jumping to RW during the update */
+		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
+		g_debug("skipping immediate reboot in case of already in bootloader");
+		/* in RO so skip reboot */
+		return TRUE;
+	}
+	g_warning("DETACH FLASH PROTECTION: %u",
+		  fu_cros_ec_usb_device_get_flash_protection(FU_CROS_EC_USB_DEVICE(device)));
+	if ((fu_cros_ec_usb_device_get_flash_protection(FU_CROS_EC_USB_DEVICE(device)) >> 1) & 1) {
+		g_warning("RO FLASH PROTECTED");
+		/* in RW, and RO region is write protected, so jump to RO */
+		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN);
+		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
+		fu_cros_ec_usb_device_reset_to_ro(FU_CROS_EC_USB_DEVICE(device));
+		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_WAIT_FOR_REPLUG);
+	}
 
 	/* success */
 	return TRUE;
@@ -335,6 +456,6 @@ fu_cros_ec_usb_hammer_class_init(FuCrosEcUsbHammerClass *klass)
 	device_class->setup = fu_cros_ec_usb_hammer_setup;
 	device_class->write_firmware = fu_cros_ec_usb_hammer_write_base_ec_firmware;
 	// device_class->attach = fu_cros_ec_usb_hammer_attach;
-	// device_class->detach = fu_cros_ec_usb_hammer_detach;
+	device_class->detach = fu_cros_ec_usb_hammer_detach;
 	// device_class->reload = fu_cros_ec_usb_hammer_reload;
 }

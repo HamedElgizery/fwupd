@@ -100,7 +100,7 @@ struct FuStructCrosEcVb21StructCommon {
     desc_size: u32le,
 }
 
-#[derive(New, Getters)]
+#[derive(Getters)]
 #[repr(C, packed)]
 struct FuStructCrosEcVb21PackedKey {
     c: FuStructCrosEcVb21StructCommon,
