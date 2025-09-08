@@ -30,6 +30,7 @@ struct _FuCrosEcUsbDeviceClass {
 #define FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL		 "special"
 #define FU_CROS_EC_USB_DEVICE_FLAG_HAS_TOUCHPAD		 "has-touchpad"
 #define FU_CROS_EC_USB_DEVICE_FLAG_BLOCK_DIGEST_REQUIRED "block-digest-required"
+/*
 
 guint32
 fu_cros_ec_usb_device_get_flash_protection(FuCrosEcUsbDevice *self);
@@ -85,3 +86,4 @@ fu_cros_ec_usb_device_reset_to_ro(FuCrosEcUsbDevice *self);
 
 void
 fu_cros_ec_usb_device_send_done(FuCrosEcUsbDevice *self);
+*/
