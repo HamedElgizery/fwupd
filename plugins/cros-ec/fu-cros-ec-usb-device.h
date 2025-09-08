@@ -68,22 +68,13 @@ gboolean
 fu_cros_ec_usb_device_unlock_rw(FuCrosEcUsbDevice *self, GError **error);
 
 gboolean
-fu_cros_ec_usb_device_transfer_section(FuCrosEcUsbDevice *self,
-				       FuFirmware *firmware,
-				       FuCrosEcFirmwareSection *section,
-				       FuProgress *progress,
-				       GError **error);
-gboolean
 fu_cros_ec_usb_device_stay_in_ro(FuCrosEcUsbDevice *self, GError **error);
 
 void
 fu_cros_ec_usb_device_reset_to_ro(FuCrosEcUsbDevice *self);
 
-gboolean
-fu_cros_ec_usb_device_jump_to_rw(FuCrosEcUsbDevice *self);
-
-gboolean
+guint32
 fu_cros_ec_usb_device_get_min_rollback(FuCrosEcUsbDevice *self);
 
-gboolean
+guint32
 fu_cros_ec_usb_device_get_key_version(FuCrosEcUsbDevice *self);

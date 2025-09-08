@@ -21,7 +21,7 @@ typedef struct {
 	FuCrosEcFirmwareUpgradeStatus ustatus;
 	gchar raw_version[FU_FMAP_FIRMWARE_STRLEN];
 	FuCrosEcVersion version;
-	gint32 rollback;
+	guint32 rollback;
 	guint32 key_version;
 	guint64 image_idx;
 } FuCrosEcFirmwareSection;
