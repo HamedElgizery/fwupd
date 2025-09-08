@@ -37,7 +37,7 @@ enum FuCrosEcFirmwareUpgradeStatus {
 #[repr(C, packed)]
 struct FuStructCrosEcUpdateFrameHeader {
     block_size: u32be,          // total frame size, including this field
-    _cmd_block_digest: u32be,    // four bytes of the structure sha1 digest (or 0 where ignored)
+    cmd_block_digest: u32be,    // first four bytes of the structure sha256 digest (or 0 where ignored)
     cmd_block_base: u32be,      // offset of this PDU into the flash SPI
     // payload goes here
 }
@@ -68,6 +68,48 @@ struct FuStructCrosEcFirstResponsePdu {
     flash_protection: u32be,    // status
     offset: u32be,              // offset of the other region
     version: [char; 32],        // version string of the other region
-    _min_rollback: u32be,        // minimum rollback version that RO will accept
-    _key_version: u32be,         // RO public key version
+    min_rollback: u32be,       // minimum rollback version that RO will accept
+    key_version: u32be,        // RO public key version
+}
+
+#[derive(New, Getters)]
+#[repr(C, packed)]
+struct FuStructCrosEcTouchpadGetInfoResponsePdu {
+    status: u8le,                   // Indicate if we get info from touchpad
+    reserved: u8le,                 //Reserved for padding
+    vendor: u16le,                  // Vendor USB id
+    fw_address: u32le,              // Virtual address to touchpad firmware
+    fw_size: u32le,                 // Size of the touchpad firmware
+    allowed_fw_hash: [u8; 32],    // Checksum of the entire touchpad firmware accepted by the EC image
+    id: u16le,
+    fw_version: u16le,
+    fw_checksum: u16le,
+}
+
+// The purpose of having the following three structs is to be
+// able to extract the RO key version.
+#[repr(C, packed)]
+struct FuStructCrosEcVb2Id {
+    raw: [u8; 20],
+
+#[repr(C, packed)]
+struct FuStructCrosEcVb21StructCommon {
+    magic: u32le,
+    struct_version_major: u16le,
+    struct_version_minor: u16le,
+    total_size: u32le,
+    fixed_size: u32le,
+    desc_size: u32le,
+}
+
+#[derive(Getters)]
+#[repr(C, packed)]
+struct FuStructCrosEcVb21PackedKey {
+    c: FuStructCrosEcVb21StructCommon,
+	key_offset: u32le,
+    key_size: u32le,
+    sig_alg: u16le,
+    hash_alg: u16le,
+    key_version: u32le,
+    id: FuStructCrosEcVb2Id,
 }
