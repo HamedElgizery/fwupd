@@ -10,13 +10,14 @@
 
 #include "fu-cros-ec-common.h"
 #include "fu-cros-ec-firmware.h"
+#include "fu-cros-ec-hammer-touchpad-firmware.h"
+#include "fu-cros-ec-hammer-touchpad.h"
 #include "fu-cros-ec-struct.h"
 #include "fu-cros-ec-usb-device.h"
 
 #define FU_CROS_EC_USB_SUBCLASS_GOOGLE_UPDATE 0x53
 #define FU_CROS_EC_USB_PROTOCOL_GOOGLE_UPDATE 0xff
 
-#define FU_CROS_EC_SETUP_RETRY_CNT	   5
 #define FU_CROS_EC_MAX_BLOCK_XFER_RETRIES  10
 #define FU_CROS_EC_FLUSH_TIMEOUT_MS	   10
 #define FU_CROS_EC_BULK_SEND_TIMEOUT	   2000 /* ms */
@@ -50,7 +51,16 @@ typedef struct {
 #define FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN	   "ro-written"
 #define FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN	   "rw-written"
 #define FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO "rebooting-to-ro"
+#define FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP	   "updating-touchpad"
 #define FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL	   "special"
+#define FU_CROS_EC_DEVICE_FLAG_HAS_TOUCHPAD	   "has-touchpad"
+
+gboolean
+fu_cros_ec_usb_device_get_in_bootloader(FuDevice *device)
+{
+	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	return self->in_bootloader;
+}
 
 static gboolean
 fu_cros_ec_usb_device_get_configuration(FuCrosEcUsbDevice *self, GError **error)
@@ -114,9 +124,27 @@ fu_cros_ec_usb_device_find_interface(FuUsbDevice *device, GError **error)
 }
 
 static gboolean
+fu_cros_ec_usb_device_ensure_children(FuCrosEcUsbDevice *self, GError **error)
+{
+	FuDevice *device = FU_DEVICE(self);
+	g_autoptr(FuCrosEcHammerTouchpad) touchpad = NULL;
+
+	if (!fu_device_has_private_flag(device, FU_CROS_EC_DEVICE_FLAG_HAS_TOUCHPAD))
+		return TRUE;
+
+	touchpad = fu_cros_ec_hammer_touchpad_new(FU_DEVICE(device));
+	fu_device_add_child(FU_DEVICE(device), FU_DEVICE(touchpad));
+
+	/* success */
+	return TRUE;
+}
+
+static gboolean
 fu_cros_ec_usb_device_probe(FuDevice *device, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	g_autoptr(FuCrosEcHammerTouchpad) touchpad = NULL;
+	g_autoptr(GError) error_local = NULL;
 
 	/* very much like usb_updater2's usb_findit() */
 	if (!fu_cros_ec_usb_device_find_interface(FU_USB_DEVICE(device), error)) {
@@ -295,7 +323,7 @@ fu_cros_ec_usb_device_ext_cmd(FuCrosEcUsbDevice *self,
 					     error);
 }
 
-static gboolean
+gboolean
 fu_cros_ec_usb_device_start_request_cb(FuDevice *device, gpointer user_data, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
@@ -334,6 +362,7 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
 	guint32 error_code;
+	g_autoptr(FuCrosEcHammerTouchpad) touchpad = NULL;
 	g_auto(GStrv) config_split = NULL;
 	g_autoptr(FuStructCrosEcFirstResponsePdu) st_rpdu =
 	    fu_struct_cros_ec_first_response_pdu_new();
@@ -430,7 +459,6 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 					  FU_STRUCT_CROS_EC_FIRST_RESPONSE_PDU_SIZE_VERSION);
 		version->dirty = active_version->dirty;
 	}
-
 	if (self->in_bootloader) {
 		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_IS_BOOTLOADER);
 		fu_device_set_version(FU_DEVICE(device), version->triplet);
@@ -450,6 +478,9 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 					 "PID",
 					 "BOARDNAME",
 					 NULL))
+		return FALSE;
+
+	if (!fu_cros_ec_usb_device_ensure_children(self, error))
 		return FALSE;
 
 	/* success */
@@ -485,6 +516,28 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 	fu_struct_cros_ec_update_frame_header_set_cmd_block_base(
 	    ufh,
 	    fu_chunk_get_address(helper->block));
+
+	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP)) {
+		/*
+		 * Sets the cmd_block_digest with the first 32 bits of the SHA256 digest
+		 * as done in hammerd.
+		 * */
+		gchar *digest = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
+							    fu_chunk_get_data(helper->block),
+							    fu_chunk_get_data_sz(helper->block));
+		guint32 digest_val;
+		if (!fu_memcpy_safe((guint8 *)&digest_val,
+				    sizeof(digest_val),
+				    0x0,
+				    (const guint8 *)digest,
+				    sizeof(digest),
+				    0x0,
+				    sizeof(digest_val),
+				    error))
+			return FALSE;
+		fu_struct_cros_ec_update_frame_header_set_cmd_block_digest(ufh, digest_val);
+	}
+
 	if (!fu_cros_ec_usb_device_do_xfer(self,
 					   ufh->data,
 					   ufh->len,
@@ -648,7 +701,7 @@ fu_cros_ec_usb_device_send_done(FuCrosEcUsbDevice *self)
 	}
 }
 
-static gboolean
+gboolean
 fu_cros_ec_usb_device_send_subcommand(FuCrosEcUsbDevice *self,
 				      guint16 subcommand,
 				      guint8 *cmd_body,
@@ -671,6 +724,31 @@ fu_cros_ec_usb_device_send_subcommand(FuCrosEcUsbDevice *self,
 		g_prefix_error(error,
 			       "failed to send subcommand %" G_GUINT16_FORMAT ": ",
 			       subcommand);
+		return FALSE;
+	}
+
+	/* success */
+	return TRUE;
+}
+
+static gboolean
+fu_cros_ec_usb_device_unlock_rw(FuCrosEcUsbDevice *self, GError **error)
+{
+	guint8 response = 0x0;
+	guint16 subcommand = FU_CROS_EC_UPDATE_EXTRA_CMD_UNLOCK_RW;
+	guint8 command_body[2] = {0x0}; /* max command body size */
+	gsize command_body_size = 0;
+	gsize response_size = 1;
+
+	if (!fu_cros_ec_usb_device_send_subcommand(self,
+						   subcommand,
+						   command_body,
+						   command_body_size,
+						   &response,
+						   &response_size,
+						   FALSE,
+						   error)) {
+		g_prefix_error(error, "unlock rw failed:");
 		return FALSE;
 	}
 
@@ -755,6 +833,96 @@ fu_cros_ec_usb_device_stay_in_ro(FuCrosEcUsbDevice *self, GError **error)
 	return TRUE;
 }
 
+gboolean
+fu_cros_ec_usb_device_write_touchpad_firmware(FuDevice *device,
+					      FuFirmware *firmware,
+					      FuProgress *progress,
+					      FwupdInstallFlags flags,
+					      FuDevice *tp_device,
+					      GError **error)
+{
+	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	FuCrosEcHammerTouchpad *touchpad = FU_CROS_EC_HAMMER_TOUCHPAD(tp_device);
+	gsize data_len = 0;
+	guint32 maximum_pdu_size = 0;
+	guint32 tp_fw_size = 0;
+	guint32 tp_fw_address = 0;
+	const guint8 *data_ptr = NULL;
+	g_autoptr(GBytes) img_bytes = NULL;
+	g_autoptr(GPtrArray) blocks = NULL;
+	g_autoptr(FuStructCrosEcFirstResponsePdu) st_rpdu =
+	    fu_struct_cros_ec_first_response_pdu_new();
+
+	/* send start request */
+	if (!fu_device_retry(device,
+			     fu_cros_ec_usb_device_start_request_cb,
+			     FU_CROS_EC_SETUP_RETRY_CNT,
+			     st_rpdu,
+			     error)) {
+		g_prefix_error(error, "touchpad: failed to send start request: ");
+		return FALSE;
+	}
+
+	fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP);
+
+	/*
+	 * Probably, can be replaced with the CrosEcUsbDevice's maximum_pdu_size,
+	 * but opting for independence here.
+	 */
+	maximum_pdu_size = fu_struct_cros_ec_first_response_pdu_get_maximum_pdu_size(st_rpdu);
+	img_bytes = fu_firmware_get_bytes(firmware, error);
+	data_ptr = (const guint8 *)g_bytes_get_data(img_bytes, &data_len);
+	tp_fw_address = fu_cros_ec_hammer_touchpad_get_fw_address(touchpad);
+	tp_fw_size = fu_cros_ec_hammer_touchpad_get_fw_size(touchpad);
+
+	if (tp_fw_address != (1u << 31)) { // This is for testing safety only, should be removed
+		g_set_error_literal(error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_INVALID_DATA,
+				    "CRITICAL DEVICE ABOUT TO BE BRICKED HALTING");
+		return FALSE;
+	}
+
+	if (data_ptr == NULL || data_len != tp_fw_size) {
+		g_set_error(
+		    error,
+		    FWUPD_ERROR,
+		    FWUPD_ERROR_INVALID_DATA,
+		    "touchpad: image and section sizes do not match: image = %" G_GSIZE_FORMAT
+		    " bytes vs touchpad section size = %" G_GSIZE_FORMAT " bytes",
+		    data_len,
+		    (gsize)tp_fw_size);
+		return FALSE;
+	}
+
+	g_debug("touchpad: sending 0x%x bytes to 0x%x", (guint)data_len, tp_fw_address);
+
+	blocks =
+	    /* send in chunks of PDU size */
+	    fu_chunk_array_new(data_ptr, data_len, tp_fw_address, 0x0, maximum_pdu_size);
+	fu_progress_set_id(progress, G_STRLOC);
+	fu_progress_set_steps(progress, blocks->len);
+	fu_progress_set_status(progress, FWUPD_STATUS_DEVICE_WRITE);
+	for (guint i = 0; i < blocks->len; i++) {
+		FuCrosEcUsbBlockHelper helper = {
+		    .block = g_ptr_array_index(blocks, i),
+		    .progress = fu_progress_get_child(progress),
+		};
+		if (!fu_device_retry(FU_DEVICE(self),
+				     fu_cros_ec_usb_device_transfer_block_cb,
+				     FU_CROS_EC_MAX_BLOCK_XFER_RETRIES,
+				     &helper,
+				     error)) {
+			g_prefix_error(error, "touchpad: failed to transfer block 0x%x: ", i);
+			return FALSE;
+		}
+		fu_progress_step_done(progress);
+	}
+
+	fu_device_remove_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP);
+	return TRUE;
+}
+
 static gboolean
 fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 				     FuFirmware *firmware,
@@ -816,6 +984,26 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 		return TRUE;
 	}
 
+	/*
+	 * If it is turn to update RW section, two conditions need
+	 * to be satisfied:
+	 *   1. ec has to be in bootloader mode
+	 *   2. RW Flash protection has to be disabled (enabled by default).
+	 *
+	 * We set another ANOTHER_WRITE_REQUIRED if any of the conditions is not met.
+	 *
+	 * Proceed with unlocking the the RW flash protection and rebooting
+	 * the device, attempting to land in bootloader mode with RW flash
+	 * protection disabled with the next write attempt.
+	 */
+	if (!fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
+	    (!self->in_bootloader || (self->flash_protection & (1 << 8)) != 0)) {
+		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
+		if (!fu_cros_ec_usb_device_unlock_rw(self, error))
+			return FALSE;
+		return TRUE;
+	}
+
 	sections = fu_cros_ec_firmware_get_needed_sections(cros_ec_firmware, error);
 	if (sections == NULL)
 		return FALSE;
@@ -846,6 +1034,7 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 			return FALSE;
 		}
 
+		// TODO: Fix me, section->version.triplet has no data...
 		if (self->in_bootloader) {
 			fu_device_set_version(device, section->version.triplet);
 		} else {
@@ -894,6 +1083,7 @@ fu_cros_ec_usb_device_prepare_firmware(FuDevice *device,
 		g_prefix_error_literal(error, "failed to pick sections: ");
 		return NULL;
 	}
+
 	return g_steal_pointer(&firmware);
 }
 
@@ -995,6 +1185,7 @@ fu_cros_ec_usb_device_init(FuCrosEcUsbDevice *self)
 	fu_device_add_private_flag(FU_DEVICE(self), FU_DEVICE_PRIVATE_FLAG_REPLUG_MATCH_GUID);
 	fu_device_add_private_flag(FU_DEVICE(self), FU_DEVICE_PRIVATE_FLAG_DETACH_PREPARE_FIRMWARE);
 	fu_device_set_acquiesce_delay(FU_DEVICE(self), 7500); /* ms */
+	fu_usb_device_set_claim_retry_count(FU_USB_DEVICE(self), FU_CROS_EC_SETUP_RETRY_CNT);
 	fu_device_set_version_format(FU_DEVICE(self), FWUPD_VERSION_FORMAT_TRIPLET);
 	fu_device_set_remove_delay(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_REMOVE_DELAY);
 	fu_device_set_firmware_gtype(FU_DEVICE(self), FU_TYPE_CROS_EC_FIRMWARE);
@@ -1004,7 +1195,9 @@ fu_cros_ec_usb_device_init(FuCrosEcUsbDevice *self)
 	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN);
 	fu_device_register_private_flag(FU_DEVICE(self),
 					FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
+	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_FLAG_UPDATING_TP);
 	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL);
+	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_DEVICE_FLAG_HAS_TOUCHPAD);
 }
 
 static void
