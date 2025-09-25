@@ -16,8 +16,6 @@
 #define FU_CROS_EC_USB_SUBCLASS_GOOGLE_UPDATE 0x53
 #define FU_CROS_EC_USB_PROTOCOL_GOOGLE_UPDATE 0xff
 
-#define FU_CROS_EC_SETUP_RETRY_CNT	   5
-#define FU_CROS_EC_MAX_BLOCK_XFER_RETRIES  10
 #define FU_CROS_EC_FLUSH_TIMEOUT_MS	   10
 #define FU_CROS_EC_BULK_SEND_TIMEOUT	   2000 /* ms */
 #define FU_CROS_EC_BULK_RECV_TIMEOUT	   5000 /* ms */
@@ -26,8 +24,7 @@
 #define FU_CROS_EC_REQUEST_UPDATE_DONE	    0xB007AB1E
 #define FU_CROS_EC_REQUEST_UPDATE_EXTRA_CMD 0xB007AB1F
 
-struct _FuCrosEcUsbDevice {
-	FuUsbDevice parent_instance;
+typedef struct {
 	guint8 iface_idx;  /* bInterfaceNumber */
 	guint8 ep_num;	   /* bEndpointAddress */
 	guint16 chunk_len; /* wMaxPacketSize */
@@ -35,26 +32,53 @@ struct _FuCrosEcUsbDevice {
 	guint32 maximum_pdu_size;
 	guint32 flash_protection;
 	guint32 writeable_offset;
+	guint32 min_rollback;
+	guint32 key_version;
 	guint16 protocol_version;
 	gchar configuration[FU_STRUCT_CROS_EC_FIRST_RESPONSE_PDU_SIZE_VERSION];
 	gboolean in_bootloader;
-};
+} FuCrosEcUsbDevicePrivate;
 
-G_DEFINE_TYPE(FuCrosEcUsbDevice, fu_cros_ec_usb_device, FU_TYPE_USB_DEVICE)
+G_DEFINE_TYPE_WITH_PRIVATE(FuCrosEcUsbDevice, fu_cros_ec_usb_device, FU_TYPE_USB_DEVICE)
+#define GET_PRIVATE(o) (fu_cros_ec_usb_device_get_instance_private(o))
 
 typedef struct {
 	FuChunk *block;
 	FuProgress *progress;
 } FuCrosEcUsbBlockHelper;
 
-#define FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN	   "ro-written"
-#define FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN	   "rw-written"
-#define FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO "rebooting-to-ro"
-#define FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL	   "special"
+guint32
+fu_cros_ec_usb_device_get_flash_protection(FuCrosEcUsbDevice *self)
+{
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
+	return priv->flash_protection;
+}
+
+gboolean
+fu_cros_ec_usb_device_get_in_bootloader(FuCrosEcUsbDevice *self)
+{
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
+	return priv->in_bootloader;
+}
+
+guint32
+fu_cros_ec_usb_device_get_min_rollback(FuCrosEcUsbDevice *self)
+{
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
+	return priv->min_rollback;
+}
+
+guint32
+fu_cros_ec_usb_device_get_key_version(FuCrosEcUsbDevice *self)
+{
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
+	return priv->key_version;
+}
 
 static gboolean
 fu_cros_ec_usb_device_get_configuration(FuCrosEcUsbDevice *self, GError **error)
 {
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	guint8 index;
 	g_autofree gchar *configuration = NULL;
 
@@ -69,7 +93,7 @@ fu_cros_ec_usb_device_get_configuration(FuCrosEcUsbDevice *self, GError **error)
 		fu_device_get_name(FU_DEVICE(self)),
 		configuration);
 
-	if (g_strlcpy(self->configuration,
+	if (g_strlcpy(priv->configuration,
 		      configuration,
 		      FU_STRUCT_CROS_EC_FIRST_RESPONSE_PDU_SIZE_VERSION) == 0) {
 		g_set_error_literal(error,
@@ -87,6 +111,7 @@ static gboolean
 fu_cros_ec_usb_device_find_interface(FuUsbDevice *device, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	g_autoptr(GPtrArray) intfs = NULL;
 
 	/* based on usb_updater2's find_interfacei() and find_endpoint() */
@@ -103,9 +128,9 @@ fu_cros_ec_usb_device_find_interface(FuUsbDevice *device, GError **error)
 			if (NULL == endpoints || endpoints->len == 0)
 				continue;
 			ep = g_ptr_array_index(endpoints, 0);
-			self->iface_idx = fu_usb_interface_get_number(intf);
-			self->ep_num = fu_usb_endpoint_get_address(ep) & 0x7f;
-			self->chunk_len = fu_usb_endpoint_get_maximum_packet_size(ep);
+			priv->iface_idx = fu_usb_interface_get_number(intf);
+			priv->ep_num = fu_usb_endpoint_get_address(ep) & 0x7f;
+			priv->chunk_len = fu_usb_endpoint_get_maximum_packet_size(ep);
 			return TRUE;
 		}
 	}
@@ -117,20 +142,21 @@ static gboolean
 fu_cros_ec_usb_device_probe(FuDevice *device, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 
 	/* very much like usb_updater2's usb_findit() */
 	if (!fu_cros_ec_usb_device_find_interface(FU_USB_DEVICE(device), error)) {
 		g_prefix_error_literal(error, "failed to find update interface: ");
 		return FALSE;
 	}
-	fu_usb_device_add_interface(FU_USB_DEVICE(self), self->iface_idx);
+	fu_usb_device_add_interface(FU_USB_DEVICE(self), priv->iface_idx);
 
-	if (self->chunk_len == 0) {
+	if (priv->chunk_len == 0) {
 		g_set_error(error,
 			    FWUPD_ERROR,
 			    FWUPD_ERROR_INVALID_DATA,
 			    "wMaxPacketSize isn't valid: %" G_GUINT16_FORMAT,
-			    self->chunk_len);
+			    priv->chunk_len);
 		return FALSE;
 	}
 
@@ -148,6 +174,7 @@ fu_cros_ec_usb_device_do_xfer(FuCrosEcUsbDevice *self,
 			      gsize *rxed_count,
 			      GError **error)
 {
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	gsize actual = 0;
 
 	/* send data out */
@@ -160,7 +187,7 @@ fu_cros_ec_usb_device_do_xfer(FuCrosEcUsbDevice *self,
 			return FALSE;
 
 		if (!fu_usb_device_bulk_transfer(FU_USB_DEVICE(self),
-						 self->ep_num,
+						 priv->ep_num,
 						 outbuf_tmp,
 						 outlen,
 						 &actual,
@@ -183,7 +210,7 @@ fu_cros_ec_usb_device_do_xfer(FuCrosEcUsbDevice *self,
 	if (inbuf != NULL && inlen > 0) {
 		actual = 0;
 		if (!fu_usb_device_bulk_transfer(FU_USB_DEVICE(self),
-						 self->ep_num | 0x80,
+						 priv->ep_num | 0x80,
 						 inbuf,
 						 inlen,
 						 &actual,
@@ -214,16 +241,17 @@ static gboolean
 fu_cros_ec_usb_device_flush(FuDevice *device, gpointer user_data, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	gsize actual = 0;
-	g_autofree guint8 *inbuf = g_malloc0(self->chunk_len);
+	g_autofree guint8 *inbuf = g_malloc0(priv->chunk_len);
 
 	/* bulk transfer expected to fail normally (ie, no stale data)
 	 * but if bulk transfer succeeds, indicates stale bytes on the device
 	 * so this will retry until they're emptied */
 	if (fu_usb_device_bulk_transfer(FU_USB_DEVICE(self),
-					self->ep_num | 0x80,
+					priv->ep_num | 0x80,
 					inbuf,
-					self->chunk_len,
+					priv->chunk_len,
 					&actual,
 					FU_CROS_EC_FLUSH_TIMEOUT_MS,
 					NULL,
@@ -241,7 +269,7 @@ fu_cros_ec_usb_device_flush(FuDevice *device, gpointer user_data, GError **error
 	return TRUE;
 }
 
-static gboolean
+gboolean
 fu_cros_ec_usb_device_recovery(FuCrosEcUsbDevice *self, GError **error)
 {
 	/* flush all data from endpoint to recover in case of error */
@@ -295,7 +323,7 @@ fu_cros_ec_usb_device_ext_cmd(FuCrosEcUsbDevice *self,
 					     error);
 }
 
-static gboolean
+gboolean
 fu_cros_ec_usb_device_start_request_cb(FuDevice *device, gpointer user_data, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
@@ -329,10 +357,11 @@ fu_cros_ec_usb_device_start_request_cb(FuDevice *device, gpointer user_data, GEr
 	return TRUE;
 }
 
-static gboolean
+gboolean
 fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	guint32 error_code;
 	g_auto(GStrv) config_split = NULL;
 	g_autoptr(FuStructCrosEcFirstResponsePdu) st_rpdu =
@@ -358,13 +387,13 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 		return FALSE;
 	}
 
-	self->protocol_version = fu_struct_cros_ec_first_response_pdu_get_protocol_version(st_rpdu);
-	if (self->protocol_version < 5 || self->protocol_version > 6) {
+	priv->protocol_version = fu_struct_cros_ec_first_response_pdu_get_protocol_version(st_rpdu);
+	if (priv->protocol_version < 5 || priv->protocol_version > 6) {
 		g_set_error(error,
 			    FWUPD_ERROR,
 			    FWUPD_ERROR_NOT_SUPPORTED,
 			    "unsupported protocol version %d",
-			    self->protocol_version);
+			    priv->protocol_version);
 		return FALSE;
 	}
 
@@ -378,28 +407,30 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 		return FALSE;
 	}
 
-	self->writeable_offset = fu_struct_cros_ec_first_response_pdu_get_offset(st_rpdu);
-	g_free(self->raw_version);
-	self->raw_version = fu_struct_cros_ec_first_response_pdu_get_version(st_rpdu);
-	self->maximum_pdu_size = fu_struct_cros_ec_first_response_pdu_get_maximum_pdu_size(st_rpdu);
-	self->flash_protection = fu_struct_cros_ec_first_response_pdu_get_flash_protection(st_rpdu);
+	priv->writeable_offset = fu_struct_cros_ec_first_response_pdu_get_offset(st_rpdu);
+	g_free(priv->raw_version);
+	priv->raw_version = fu_struct_cros_ec_first_response_pdu_get_version(st_rpdu);
+	priv->maximum_pdu_size = fu_struct_cros_ec_first_response_pdu_get_maximum_pdu_size(st_rpdu);
+	priv->flash_protection = fu_struct_cros_ec_first_response_pdu_get_flash_protection(st_rpdu);
+	priv->min_rollback = fu_struct_cros_ec_first_response_pdu_get_min_rollback(st_rpdu);
+	priv->key_version = fu_struct_cros_ec_first_response_pdu_get_key_version(st_rpdu);
 
 	/* get active version string and running region from iConfiguration */
 	if (!fu_cros_ec_usb_device_get_configuration(self, error))
 		return FALSE;
-	config_split = g_strsplit(self->configuration, ":", 2);
+	config_split = g_strsplit(priv->configuration, ":", 2);
 	if (g_strv_length(config_split) < 2) {
 		/* no prefix found so fall back to offset */
-		self->in_bootloader = self->writeable_offset != 0x0;
-		active_version = fu_cros_ec_version_parse(self->configuration, error);
+		priv->in_bootloader = priv->writeable_offset != 0x0;
+		active_version = fu_cros_ec_version_parse(priv->configuration, error);
 		if (active_version == NULL) {
 			g_prefix_error(error,
 				       "failed parsing device's version: %32s: ",
-				       self->configuration);
+				       priv->configuration);
 			return FALSE;
 		}
 	} else {
-		self->in_bootloader = g_strcmp0("RO", config_split[0]) == 0;
+		priv->in_bootloader = g_strcmp0("RO", config_split[0]) == 0;
 		active_version = fu_cros_ec_version_parse(config_split[1], error);
 		if (active_version == NULL) {
 			g_prefix_error(error,
@@ -410,13 +441,13 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 	}
 
 	/* get the other region's version string from targ */
-	version = fu_cros_ec_version_parse(self->raw_version, &error_local);
+	version = fu_cros_ec_version_parse(priv->raw_version, &error_local);
 	if (version == NULL) {
-		if (!self->in_bootloader) {
+		if (!priv->in_bootloader) {
 			g_propagate_prefixed_error(error,
 						   g_steal_pointer(&error_local),
 						   "failed parsing device's version: %32s: ",
-						   self->raw_version);
+						   priv->raw_version);
 			return FALSE;
 		}
 		/* if unable to parse version, copy from the active_version.
@@ -431,7 +462,7 @@ fu_cros_ec_usb_device_setup(FuDevice *device, GError **error)
 		version->dirty = active_version->dirty;
 	}
 
-	if (self->in_bootloader) {
+	if (priv->in_bootloader) {
 		fu_device_add_flag(device, FWUPD_DEVICE_FLAG_IS_BOOTLOADER);
 		fu_device_set_version(FU_DEVICE(device), version->triplet);
 		fu_device_set_version_bootloader(FU_DEVICE(device), active_version->triplet);
@@ -462,15 +493,15 @@ fu_cros_ec_usb_device_reload(FuDevice *device, GError **error)
 	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN) &&
 	    fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO))
 		return TRUE;
-
 	fu_device_remove_flag(device, FWUPD_DEVICE_FLAG_ANOTHER_WRITE_REQUIRED);
 	return TRUE;
 }
 
-static gboolean
+gboolean
 fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	FuCrosEcUsbBlockHelper *helper = (FuCrosEcUsbBlockHelper *)user_data;
 	gsize transfer_size = 0;
 	guint32 reply = 0;
@@ -509,7 +540,7 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 				    fu_chunk_get_data_sz(helper->block),
 				    0x00,
 				    0x00,
-				    self->chunk_len);
+				    priv->chunk_len);
 	fu_progress_set_id(helper->progress, G_STRLOC);
 	fu_progress_set_steps(helper->progress, chunks->len);
 	for (guint i = 0; i < chunks->len; i++) {
@@ -573,6 +604,7 @@ fu_cros_ec_usb_device_transfer_section(FuCrosEcUsbDevice *self,
 				       FuProgress *progress,
 				       GError **error)
 {
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	const guint8 *data_ptr = NULL;
 	gsize data_len = 0;
 	g_autoptr(GBytes) img_bytes = NULL;
@@ -605,7 +637,7 @@ fu_cros_ec_usb_device_transfer_section(FuCrosEcUsbDevice *self,
 
 	/* send in chunks of PDU size */
 	blocks =
-	    fu_chunk_array_new(data_ptr, data_len, section->offset, 0x0, self->maximum_pdu_size);
+	    fu_chunk_array_new(data_ptr, data_len, section->offset, 0x0, priv->maximum_pdu_size);
 	fu_progress_set_id(progress, G_STRLOC);
 	fu_progress_set_steps(progress, blocks->len);
 	for (guint i = 0; i < blocks->len; i++) {
@@ -628,7 +660,7 @@ fu_cros_ec_usb_device_transfer_section(FuCrosEcUsbDevice *self,
 	return TRUE;
 }
 
-static void
+void
 fu_cros_ec_usb_device_send_done(FuCrosEcUsbDevice *self)
 {
 	guint8 buf[1] = {0x0};
@@ -648,7 +680,7 @@ fu_cros_ec_usb_device_send_done(FuCrosEcUsbDevice *self)
 	}
 }
 
-static gboolean
+gboolean
 fu_cros_ec_usb_device_send_subcommand(FuCrosEcUsbDevice *self,
 				      guint16 subcommand,
 				      guint8 *cmd_body,
@@ -678,7 +710,7 @@ fu_cros_ec_usb_device_send_subcommand(FuCrosEcUsbDevice *self,
 	return TRUE;
 }
 
-static void
+void
 fu_cros_ec_usb_device_reset_to_ro(FuCrosEcUsbDevice *self)
 {
 	guint8 response = 0x0;
@@ -732,7 +764,34 @@ fu_cros_ec_usb_device_jump_to_rw(FuCrosEcUsbDevice *self)
 	return TRUE;
 }
 
-static gboolean
+gboolean
+fu_cros_ec_usb_device_unlock_rw(FuCrosEcUsbDevice *self, GError **error)
+{
+	guint8 response = 0x0;
+	guint16 subcommand = FU_CROS_EC_UPDATE_EXTRA_CMD_UNLOCK_RW;
+	guint8 command_body[2] = {0x0}; /* max command body size */
+	gsize command_body_size = 0;
+	gsize response_size = 1;
+	g_warning("DEBUG: SEND UNLOCK RW");
+
+	if (!fu_cros_ec_usb_device_send_subcommand(self,
+						   subcommand,
+						   command_body,
+						   command_body_size,
+						   &response,
+						   &response_size,
+						   FALSE,
+						   error)) {
+		g_prefix_error_literal(error, "unlock rw failed:");
+		return FALSE;
+	}
+
+	g_warning("DEBUG: SEND UNLOCK RW SUCCESS");
+	/* success */
+	return TRUE;
+}
+
+gboolean
 fu_cros_ec_usb_device_stay_in_ro(FuCrosEcUsbDevice *self, GError **error)
 {
 	gsize response_size = 1;
@@ -763,6 +822,7 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 				     GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	g_autoptr(GPtrArray) sections = NULL;
 	FuCrosEcFirmware *cros_ec_firmware = FU_CROS_EC_FIRMWARE(firmware);
 
@@ -796,7 +856,7 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 	}
 
 	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
-	    self->in_bootloader) {
+	    priv->in_bootloader) {
 		/*
 		 * We had previously written to the rw region (while we were
 		 * booted from ro region), but somehow landed in ro again after
@@ -846,7 +906,8 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 			return FALSE;
 		}
 
-		if (self->in_bootloader) {
+		// TODO: Fix me, section->version.triplet has no data...
+		if (priv->in_bootloader) {
 			fu_device_set_version(device, section->version.triplet);
 		} else {
 			fu_device_set_version_bootloader(device, section->version.triplet);
@@ -858,7 +919,7 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 	/* send done */
 	fu_cros_ec_usb_device_send_done(self);
 
-	if (self->in_bootloader)
+	if (priv->in_bootloader)
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN);
 	else
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN);
@@ -880,6 +941,7 @@ fu_cros_ec_usb_device_prepare_firmware(FuDevice *device,
 				       GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	g_autoptr(FuFirmware) firmware = fu_cros_ec_firmware_new();
 
 	if (!fu_firmware_parse_stream(firmware, stream, 0x0, flags, error))
@@ -889,11 +951,12 @@ fu_cros_ec_usb_device_prepare_firmware(FuDevice *device,
 
 	/* pick sections */
 	if (!fu_cros_ec_firmware_pick_sections(FU_CROS_EC_FIRMWARE(firmware),
-					       self->writeable_offset,
+					       priv->writeable_offset,
 					       error)) {
 		g_prefix_error_literal(error, "failed to pick sections: ");
 		return NULL;
 	}
+
 	return g_steal_pointer(&firmware);
 }
 
@@ -901,8 +964,9 @@ static gboolean
 fu_cros_ec_usb_device_attach(FuDevice *device, FuProgress *progress, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 
-	if (self->in_bootloader &&
+	if (priv->in_bootloader &&
 	    fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL)) {
 		/*
 		 * attach after the SPECIAL flag was set. The EC will auto-jump
@@ -934,12 +998,13 @@ static gboolean
 fu_cros_ec_usb_device_detach(FuDevice *device, FuProgress *progress, GError **error)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 
 	if (fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RW_WRITTEN) &&
 	    !fu_device_has_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN))
 		return TRUE;
 
-	if (self->in_bootloader) {
+	if (priv->in_bootloader) {
 		/* If EC just rebooted - prevent jumping to RW during the update */
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
 		g_debug("skipping immediate reboot in case of already in bootloader");
@@ -947,7 +1012,7 @@ fu_cros_ec_usb_device_detach(FuDevice *device, FuProgress *progress, GError **er
 		return TRUE;
 	}
 
-	if (self->flash_protection != 0x0) {
+	if (priv->flash_protection != 0x0) {
 		/* in RW, and RO region is write protected, so jump to RO */
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN);
 		fu_device_add_private_flag(device, FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
@@ -998,6 +1063,7 @@ fu_cros_ec_usb_device_init(FuCrosEcUsbDevice *self)
 	fu_device_set_version_format(FU_DEVICE(self), FWUPD_VERSION_FORMAT_TRIPLET);
 	fu_device_set_remove_delay(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_REMOVE_DELAY);
 	fu_device_set_firmware_gtype(FU_DEVICE(self), FU_TYPE_CROS_EC_FIRMWARE);
+	fu_usb_device_set_claim_retry_count(FU_USB_DEVICE(self), FU_CROS_EC_SETUP_RETRY_CNT);
 	fu_device_add_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_DUAL_IMAGE);
 	fu_device_add_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_SIGNED_PAYLOAD);
 	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_FLAG_RO_WRITTEN);
@@ -1005,17 +1071,19 @@ fu_cros_ec_usb_device_init(FuCrosEcUsbDevice *self)
 	fu_device_register_private_flag(FU_DEVICE(self),
 					FU_CROS_EC_USB_DEVICE_FLAG_REBOOTING_TO_RO);
 	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_FLAG_SPECIAL);
+	fu_device_register_private_flag(FU_DEVICE(self), FU_CROS_EC_USB_DEVICE_FLAG_HAS_TOUCHPAD);
 }
 
 static void
 fu_cros_ec_usb_device_to_string(FuDevice *device, guint idt, GString *str)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
-	fwupd_codec_string_append_int(str, idt, "ProtocolVersion", self->protocol_version);
-	fwupd_codec_string_append_int(str, idt, "MaxPduSize", self->maximum_pdu_size);
-	fwupd_codec_string_append_hex(str, idt, "FlashProtection", self->flash_protection);
-	fwupd_codec_string_append(str, idt, "RawVersion", self->raw_version);
-	fwupd_codec_string_append_hex(str, idt, "WriteableOffset", self->writeable_offset);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
+	fwupd_codec_string_append_int(str, idt, "ProtocolVersion", priv->protocol_version);
+	fwupd_codec_string_append_int(str, idt, "MaxPduSize", priv->maximum_pdu_size);
+	fwupd_codec_string_append_hex(str, idt, "FlashProtection", priv->flash_protection);
+	fwupd_codec_string_append(str, idt, "RawVersion", priv->raw_version);
+	fwupd_codec_string_append_hex(str, idt, "WriteableOffset", priv->writeable_offset);
 }
 
 static void
@@ -1033,7 +1101,8 @@ static void
 fu_cros_ec_usb_device_finalize(GObject *object)
 {
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(object);
-	g_free(self->raw_version);
+	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
+	g_free(priv->raw_version);
 	G_OBJECT_CLASS(fu_cros_ec_usb_device_parent_class)->finalize(object);
 }
 
