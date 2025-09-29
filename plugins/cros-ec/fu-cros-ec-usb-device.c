@@ -503,7 +503,9 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 	FuCrosEcUsbDevice *self = FU_CROS_EC_USB_DEVICE(device);
 	FuCrosEcUsbDevicePrivate *priv = GET_PRIVATE(self);
 	FuCrosEcUsbBlockHelper *helper = (FuCrosEcUsbBlockHelper *)user_data;
+	guint8 digest[SHA256_DIGEST_LENGTH] = {0};
 	gsize transfer_size = 0;
+	guint32 digest_val = 0;
 	guint32 reply = 0;
 	g_autoptr(FuStructCrosEcUpdateFrameHeader) ufh =
 	    fu_struct_cros_ec_update_frame_header_new();
@@ -516,6 +518,37 @@ fu_cros_ec_usb_device_transfer_block_cb(FuDevice *device, gpointer user_data, GE
 	fu_struct_cros_ec_update_frame_header_set_cmd_block_base(
 	    ufh,
 	    fu_chunk_get_address(helper->block));
+
+	if (fu_device_has_private_flag(device,
+				       FU_CROS_EC_USB_DEVICE_FLAG_CMD_BLOCK_DIGEST_REQUIRED)) {
+		/*
+		 * Sets the cmd_block_digest with the first 32 bits of the SHA256 digest
+		 * as done in hammerd.
+		 **/
+		gsize out_len = SHA256_DIGEST_LENGTH;
+		GChecksum *cs = g_checksum_new(G_CHECKSUM_SHA256);
+		g_checksum_update(cs,
+				  fu_chunk_get_data(helper->block),
+				  fu_chunk_get_data_sz(helper->block));
+		g_checksum_get_digest(cs, digest, &out_len);
+
+		/* Sets the first 4 bytes in big endian */
+		if (!fu_memcpy_safe((guint8 *)&digest_val,
+				    sizeof(digest_val),
+				    0x0,
+				    (const guint8 *)digest,
+				    sizeof(digest),
+				    0x0,
+				    sizeof(digest_val),
+				    error))
+			return FALSE;
+
+		g_warning("DIGEST: %u", digest_val);
+		g_warning("DIGEST BE: %u", GUINT32_TO_BE(digest_val)); /* nocheck:blocked */
+		g_warning("DIGEST POINTER: %u", *((guint32 *)digest));
+		fu_struct_cros_ec_update_frame_header_set_cmd_block_digest(ufh, digest_val);
+	}
+
 	if (!fu_cros_ec_usb_device_do_xfer(self,
 					   ufh->data,
 					   ufh->len,
