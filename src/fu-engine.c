@@ -62,8 +62,6 @@
 #include "fu-udev-device-private.h"
 #include "fu-uefi-backend.h"
 #include "fu-usb-backend.h"
-#include "fu-usb-device-fw-ds20.h"
-#include "fu-usb-device-ms-ds20.h"
 
 #ifdef HAVE_GIO_UNIX
 #include "fu-unix-seekable-input-stream.h"
@@ -113,6 +111,7 @@ struct _FuEngine {
 	XbQuery *query_container_checksum1; /* container checksum -> release */
 	XbQuery *query_container_checksum2; /* artifact checksum -> release */
 	XbQuery *query_tag_by_guid_version;
+	GPtrArray *search_queries; /* (element-type XbQuery) */
 	FuPluginList *plugin_list;
 	GPtrArray *plugin_filter;
 	FuContext *ctx;
@@ -2064,7 +2063,7 @@ fu_engine_get_report_metadata(FuEngine *self, GError **error)
 		g_hash_table_insert(hash, g_strdup("KernelVersion"), g_strdup(name_tmp.release));
 	}
 #endif
-#ifdef HAVE_AUXV_H
+#if defined(HAVE_AUXV_H) && !defined(__FreeBSD__)
 	/* this is the architecture of the userspace, e.g. i686 would be returned for
 	 * glibc-2.40-17.fc41.i686 on kernel-6.12.9-200.fc41.x86_64 */
 	g_hash_table_insert(hash,
@@ -2370,17 +2369,8 @@ fu_engine_install_releases(FuEngine *self,
 	fu_progress_set_steps(progress, releases->len);
 	for (guint i = 0; i < releases->len; i++) {
 		FuRelease *release = g_ptr_array_index(releases, i);
-		GInputStream *stream = fu_release_get_stream(release);
-		if (stream == NULL) {
-			g_set_error_literal(error,
-					    FWUPD_ERROR,
-					    FWUPD_ERROR_NOT_SUPPORTED,
-					    "no stream for release");
-			return FALSE;
-		}
 		if (!fu_engine_install_release(self,
 					       release,
-					       stream,
 					       fu_progress_get_child(progress),
 					       flags,
 					       error)) {
@@ -2574,7 +2564,6 @@ fu_engine_save_into_backup_remote(FuEngine *self, GBytes *fw, GError **error)
  * fu_engine_install_release:
  * @self: a #FuEngine
  * @release: a #FuRelease
- * @stream: the #GInputStream of the .cab file
  * @progress: a #FuProgress
  * @flags: install flags, e.g. %FWUPD_INSTALL_FLAG_ALLOW_OLDER
  * @error: (nullable): optional return location for an error
@@ -2590,7 +2579,6 @@ fu_engine_save_into_backup_remote(FuEngine *self, GBytes *fw, GError **error)
 gboolean
 fu_engine_install_release(FuEngine *self,
 			  FuRelease *release,
-			  GInputStream *stream,
 			  FuProgress *progress,
 			  FwupdInstallFlags flags,
 			  GError **error)
@@ -2599,6 +2587,7 @@ fu_engine_install_release(FuEngine *self,
 	FuEngineRequest *request = fu_release_get_request(release);
 	FuPlugin *plugin;
 	FwupdFeatureFlags feature_flags = FWUPD_FEATURE_FLAG_NONE;
+	GInputStream *stream = fu_release_get_stream(release);
 	const gchar *tmp;
 	g_autoptr(FuDevice) device = NULL;
 	g_autoptr(FuDevice) device_tmp = NULL;
@@ -2607,8 +2596,16 @@ fu_engine_install_release(FuEngine *self,
 	g_return_val_if_fail(FU_IS_ENGINE(self), FALSE);
 	g_return_val_if_fail(FU_IS_RELEASE(release), FALSE);
 	g_return_val_if_fail(FU_IS_PROGRESS(progress), FALSE);
-	g_return_val_if_fail(G_IS_INPUT_STREAM(stream), FALSE);
 	g_return_val_if_fail(error == NULL || *error == NULL, FALSE);
+
+	/* sanity check */
+	if (stream == NULL) {
+		g_set_error_literal(error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_NOT_SUPPORTED,
+				    "no stream for release");
+		return FALSE;
+	}
 
 	/* optional for tests */
 	if (request != NULL)
@@ -3761,6 +3758,71 @@ fu_engine_get_item_by_id_fallback_history(FuEngine *self, const gchar *id, GErro
 }
 
 static gboolean
+fu_engine_search_query_append(FuEngine *self, const gchar *xpath, GError **error)
+{
+	g_autoptr(GError) error_local = NULL;
+	g_autoptr(XbQuery) query = NULL;
+
+	/* prepare tag query with bound GUID parameter */
+	query = xb_query_new_full(self->silo, xpath, XB_QUERY_FLAG_OPTIMIZE, &error_local);
+	if (query == NULL) {
+		if (g_error_matches(error_local, G_IO_ERROR, G_IO_ERROR_NOT_FOUND) ||
+		    g_error_matches(error_local, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT)) {
+			g_debug("ignoring prepared query %s: %s", xpath, error_local->message);
+			return TRUE;
+		}
+		g_propagate_error(error, g_steal_pointer(&error_local));
+		fwupd_error_convert(error);
+		return FALSE;
+	}
+	g_ptr_array_add(self->search_queries, g_steal_pointer(&query));
+
+	/* success */
+	return TRUE;
+}
+
+static gboolean
+fu_engine_search_query_create(FuEngine *self, GError **error)
+{
+	/* invalidate everything */
+	g_ptr_array_set_size(self->search_queries, 0);
+
+	/* we get one for free, add build the others */
+	g_ptr_array_add(self->search_queries, g_object_ref(self->query_component_by_guid));
+	if (!fu_engine_search_query_append(self, "components/component/id[text()=?]/..", error))
+		return FALSE;
+	if (!fu_engine_search_query_append(self, "components/component/name[text()~=?]/..", error))
+		return FALSE;
+	if (!fu_engine_search_query_append(self,
+					   "components/component/developer_name[text()~=?]/..",
+					   error))
+		return FALSE;
+	if (!fu_engine_search_query_append(self,
+					   "components/component/releases/release/artifacts/"
+					   "artifact/filename[text()=?]/../../../../..",
+					   error))
+		return FALSE;
+	if (!fu_engine_search_query_append(self,
+					   "components/component/releases/release/artifacts/"
+					   "artifact/checksum[text()=?]/../../../../..",
+					   error))
+		return FALSE;
+	if (!fu_engine_search_query_append(
+		self,
+		"components/component/releases/release/issues/issue[text()=?]/../../../..",
+		error))
+		return FALSE;
+	if (!fu_engine_search_query_append(
+		self,
+		"components/component/custom/value[@key='LVFS::UpdateProtocol'][text()=?]/../..",
+		error))
+		return FALSE;
+
+	/* success */
+	return TRUE;
+}
+
+static gboolean
 fu_engine_create_silo_index(FuEngine *self, GError **error)
 {
 	g_autoptr(GPtrArray) components = NULL;
@@ -3848,6 +3910,10 @@ fu_engine_create_silo_index(FuEngine *self, GError **error)
 			      &error_tag_by_guid_version);
 	if (self->query_tag_by_guid_version == NULL)
 		g_debug("ignoring prepared query: %s", error_tag_by_guid_version->message);
+
+	/* build all the search queries */
+	if (!fu_engine_search_query_create(self, error))
+		return FALSE;
 
 	/* success */
 	return TRUE;
@@ -5032,7 +5098,10 @@ fu_engine_fixup_history_device(FuEngine *self, FuDevice *device)
 	csums = fwupd_release_get_checksums(release);
 	for (guint j = 0; j < csums->len; j++) {
 		const gchar *csum = g_ptr_array_index(csums, j);
-		g_autoptr(XbNode) rel = fu_engine_get_release_for_checksum(self, csum);
+		g_autoptr(XbNode) rel = NULL;
+
+		g_debug("finding release checksum %s", csum);
+		rel = fu_engine_get_release_for_checksum(self, csum);
 		if (rel != NULL) {
 			g_autoptr(GError) error_local = NULL;
 			g_autoptr(XbNode) component = NULL;
@@ -5494,6 +5563,62 @@ fu_engine_get_releases_for_device(FuEngine *self,
 				    "No releases found");
 		return NULL;
 	}
+	return g_steal_pointer(&releases);
+}
+
+/**
+ * fu_engine_search:
+ * @self: a #FuEngine
+ * @token: a search term
+ * @error: (nullable): optional return location for an error
+ *
+ * Gets all the releases that match a specific token.
+ *
+ * Returns: (transfer container) (element-type FwupdResult): results
+ **/
+GPtrArray *
+fu_engine_search(FuEngine *self, const gchar *token, GError **error)
+{
+	g_autoptr(GPtrArray) releases =
+	    g_ptr_array_new_with_free_func((GDestroyNotify)g_object_unref);
+	g_auto(XbQueryContext) context = XB_QUERY_CONTEXT_INIT();
+
+	g_return_val_if_fail(FU_IS_ENGINE(self), NULL);
+	g_return_val_if_fail(token != NULL, NULL);
+	g_return_val_if_fail(error == NULL || *error == NULL, NULL);
+
+	/* bind search token and then query */
+	xb_value_bindings_bind_str(xb_query_context_get_bindings(&context), 0, token, NULL);
+	for (guint i = 0; i < self->search_queries->len; i++) {
+		XbQuery *query_tmp = g_ptr_array_index(self->search_queries, i);
+		g_autoptr(GError) error_local = NULL;
+		g_autoptr(GPtrArray) components = NULL;
+
+		components =
+		    xb_silo_query_with_context(self->silo, query_tmp, &context, &error_local);
+		if (components == NULL) {
+			if (g_error_matches(error_local, G_IO_ERROR, G_IO_ERROR_NOT_FOUND) ||
+			    g_error_matches(error_local, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT))
+				continue;
+			g_propagate_error(error, g_steal_pointer(&error_local));
+			fwupd_error_convert(error);
+			return NULL;
+		}
+		for (guint j = 0; j < components->len; j++) {
+			g_autoptr(FuRelease) rel = fu_release_new();
+			XbNode *component = g_ptr_array_index(components, j);
+			if (!fu_release_load(rel,
+					     NULL,
+					     component,
+					     NULL,
+					     FWUPD_INSTALL_FLAG_FORCE,
+					     error))
+				return NULL;
+			g_ptr_array_add(releases, g_steal_pointer(&rel));
+		}
+	}
+
+	/* success */
 	return g_steal_pointer(&releases);
 }
 
@@ -8485,56 +8610,7 @@ fu_engine_load(FuEngine *self, FuEngineLoadFlags flags, FuProgress *progress, GE
 		return FALSE;
 
 	/* add the "built-in" firmware types */
-	fu_context_add_firmware_gtype(self->ctx, "raw", FU_TYPE_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "cab", FU_TYPE_CAB_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "dfu", FU_TYPE_DFU_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "fdt", FU_TYPE_FDT_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "csv", FU_TYPE_CSV_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "fit", FU_TYPE_FIT_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "dfuse", FU_TYPE_DFUSE_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "ifwi-cpd", FU_TYPE_IFWI_CPD_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "ifwi-fpt", FU_TYPE_IFWI_FPT_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "oprom", FU_TYPE_OPROM_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "fmap", FU_TYPE_FMAP_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "ihex", FU_TYPE_IHEX_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "linear", FU_TYPE_LINEAR_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "srec", FU_TYPE_SREC_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "hid-descriptor", FU_TYPE_HID_DESCRIPTOR);
-	fu_context_add_firmware_gtype(self->ctx, "archive", FU_TYPE_ARCHIVE_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "smbios", FU_TYPE_SMBIOS);
-	fu_context_add_firmware_gtype(self->ctx, "acpi-table", FU_TYPE_ACPI_TABLE);
-	fu_context_add_firmware_gtype(self->ctx, "sbatlevel", FU_TYPE_SBATLEVEL_SECTION);
-	fu_context_add_firmware_gtype(self->ctx, "edid", FU_TYPE_EDID);
-	fu_context_add_firmware_gtype(self->ctx, "efi-file", FU_TYPE_EFI_FILE);
-	fu_context_add_firmware_gtype(self->ctx, "efi-signature", FU_TYPE_EFI_SIGNATURE);
-	fu_context_add_firmware_gtype(self->ctx, "efi-signature-list", FU_TYPE_EFI_SIGNATURE_LIST);
-	fu_context_add_firmware_gtype(self->ctx,
-				      "efi-variable-authentication2",
-				      FU_TYPE_EFI_VARIABLE_AUTHENTICATION2);
-	fu_context_add_firmware_gtype(self->ctx, "efi-load-option", FU_TYPE_EFI_LOAD_OPTION);
-	fu_context_add_firmware_gtype(self->ctx,
-				      "efi-device-path-list",
-				      FU_TYPE_EFI_DEVICE_PATH_LIST);
-	fu_context_add_firmware_gtype(self->ctx, "efi-filesystem", FU_TYPE_EFI_FILESYSTEM);
-	fu_context_add_firmware_gtype(self->ctx, "efi-section", FU_TYPE_EFI_SECTION);
-	fu_context_add_firmware_gtype(self->ctx, "efi-volume", FU_TYPE_EFI_VOLUME);
-	fu_context_add_firmware_gtype(self->ctx, "ifd-bios", FU_TYPE_IFD_BIOS);
-	fu_context_add_firmware_gtype(self->ctx, "ifd-firmware", FU_TYPE_IFD_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "cfu-offer", FU_TYPE_CFU_OFFER);
-	fu_context_add_firmware_gtype(self->ctx, "cfu-payload", FU_TYPE_CFU_PAYLOAD);
-	fu_context_add_firmware_gtype(self->ctx, "uswid", FU_TYPE_USWID_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "coswid", FU_TYPE_COSWID_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "pefile", FU_TYPE_PEFILE_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "elf", FU_TYPE_ELF_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx, "x509-certificate", FU_TYPE_X509_CERTIFICATE);
-	fu_context_add_firmware_gtype(self->ctx,
-				      "intel-thunderbolt",
-				      FU_TYPE_INTEL_THUNDERBOLT_FIRMWARE);
-	fu_context_add_firmware_gtype(self->ctx,
-				      "intel-thunderbolt-nvm",
-				      FU_TYPE_INTEL_THUNDERBOLT_NVM);
-	fu_context_add_firmware_gtype(self->ctx, "usb-device-fw-ds20", FU_TYPE_USB_DEVICE_FW_DS20);
-	fu_context_add_firmware_gtype(self->ctx, "usb-device-ms-ds20", FU_TYPE_USB_DEVICE_MS_DS20);
+	fu_engine_add_firmware_gtypes(self);
 
 	/* we are emulating a different host */
 	if (host_emulate != NULL) {
@@ -9091,6 +9167,7 @@ fu_engine_init(FuEngine *self)
 	self->plugin_filter = g_ptr_array_new_with_free_func(g_free);
 	self->host_security_attrs = fu_security_attrs_new();
 	self->local_monitors = g_ptr_array_new_with_free_func((GDestroyNotify)g_object_unref);
+	self->search_queries = g_ptr_array_new_with_free_func((GDestroyNotify)g_object_unref);
 	self->acquiesce_loop = g_main_loop_new(NULL, FALSE);
 	self->device_changed_allowlist =
 	    g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
@@ -9148,6 +9225,7 @@ fu_engine_finalize(GObject *obj)
 	g_object_unref(self->jcat_context);
 	g_ptr_array_unref(self->plugin_filter);
 	g_ptr_array_unref(self->local_monitors);
+	g_ptr_array_unref(self->search_queries);
 	g_hash_table_unref(self->device_changed_allowlist);
 	g_object_unref(self->plugin_list);
 

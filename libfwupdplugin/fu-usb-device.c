@@ -13,6 +13,7 @@
 #include "fu-bytes.h"
 #include "fu-context-private.h"
 #include "fu-device-event-private.h"
+#include "fu-device-locker.h"
 #include "fu-device-private.h"
 #include "fu-dump.h"
 #include "fu-input-stream.h"
@@ -420,10 +421,12 @@ fu_usb_device_query_hub(FuUsbDevice *self, GError **error)
 static gboolean
 fu_usb_device_open_internal(FuUsbDevice *self, GError **error)
 {
-	FuContext *ctx = fu_device_get_context(FU_DEVICE(self));
 	FuUsbDevicePrivate *priv = GET_PRIVATE(self);
+#ifdef HAVE_LIBUSB_WRAP_SYS_DEVICE
+	FuContext *ctx = fu_device_get_context(FU_DEVICE(self));
 	libusb_context *usb_ctx = fu_context_get_data(ctx, "libusb_context");
-	gint rc;
+#endif
+	gint rc = 0;
 
 	/* sanity check */
 	if (fu_device_has_flag(FU_DEVICE(self), FWUPD_DEVICE_FLAG_EMULATED))
@@ -442,6 +445,7 @@ fu_usb_device_open_internal(FuUsbDevice *self, GError **error)
 	if (priv->usb_device != NULL) {
 		rc = libusb_open(priv->usb_device, &priv->handle);
 	} else {
+#if defined(HAVE_LIBUSB_WRAP_SYS_DEVICE)
 		gint fd;
 		FuIOChannel *io_channel = fu_udev_device_get_io_channel(FU_UDEV_DEVICE(self));
 		if (io_channel == NULL) {
@@ -453,6 +457,13 @@ fu_usb_device_open_internal(FuUsbDevice *self, GError **error)
 		}
 		fd = fu_io_channel_unix_get_fd(io_channel);
 		rc = libusb_wrap_sys_device(usb_ctx, fd, &priv->handle);
+#else
+		g_set_error_literal(error,
+			    FWUPD_ERROR,
+			    FWUPD_ERROR_NOT_SUPPORTED,
+			    "libusb_wrap_sys_device not available, can't wrap fd");
+		return FALSE;
+#endif
 	}
 	if (!fu_usb_device_libusb_error_to_gerror(rc, error)) {
 		if (priv->handle != NULL)
@@ -858,9 +869,9 @@ fu_usb_device_probe_bos_descriptor(FuUsbDevice *self, FuUsbBosDescriptor *bos, G
 		return TRUE;
 
 	/* set the quirks onto the device */
-	usb_locker = fu_device_locker_new_full(self,
-					       (FuDeviceLockerFunc)fu_usb_device_open,
-					       (FuDeviceLockerFunc)fu_usb_device_close,
+	usb_locker = fu_device_locker_new_full(FU_DEVICE(self),
+					       fu_usb_device_open,
+					       fu_usb_device_close,
 					       error);
 	if (usb_locker == NULL)
 		return FALSE;
@@ -988,7 +999,7 @@ fu_usb_device_ensure_bos_descriptors(FuUsbDevice *self, GError **error)
 				    fu_usb_device_get_spec(self));
 			return FALSE;
 		}
-		usb_locker = fu_device_locker_new(self, error);
+		usb_locker = fu_device_locker_new(FU_DEVICE(self), error);
 		if (usb_locker == NULL)
 			return FALSE;
 		if (priv->handle == NULL) {

@@ -9,11 +9,15 @@
 #include "config.h"
 
 #include "fu-byte-array.h"
+#include "fu-bytes.h"
+#include "fu-chunk-array.h"
 #include "fu-common.h"
 #include "fu-efi-common.h"
 #include "fu-efi-filesystem.h"
+#include "fu-efi-ftw-store.h"
 #include "fu-efi-struct.h"
 #include "fu-efi-volume.h"
+#include "fu-efi-vss2-variable-store.h"
 #include "fu-input-stream.h"
 #include "fu-partial-input-stream.h"
 #include "fu-sum.h"
@@ -50,6 +54,83 @@ static gboolean
 fu_efi_volume_validate(FuFirmware *firmware, GInputStream *stream, gsize offset, GError **error)
 {
 	return fu_struct_efi_volume_validate_stream(stream, offset, error);
+}
+
+static gboolean
+fu_efi_volume_parse_nvram_evsa(FuEfiVolume *self,
+			       GInputStream *stream,
+			       gsize offset,
+			       FuFirmwareParseFlags flags,
+			       GError **error)
+{
+	gsize streamsz = 0;
+	guint found_cnt = 0;
+	gsize offset_last = offset;
+
+	if (!fu_input_stream_size(stream, &streamsz, error))
+		return FALSE;
+	while (offset < streamsz) {
+		g_autoptr(FuFirmware) img = NULL;
+		g_autoptr(GError) error_local = NULL;
+
+		/* try to find a NVRAM store */
+		img = fu_firmware_new_from_gtypes(stream,
+						  offset,
+						  flags | FU_FIRMWARE_PARSE_FLAG_NO_SEARCH,
+						  &error_local,
+						  FU_TYPE_EFI_VSS2_VARIABLE_STORE,
+						  FU_TYPE_EFI_FTW_STORE,
+						  G_TYPE_INVALID);
+		if (img == NULL) {
+			if (!g_error_matches(error_local, FWUPD_ERROR, FWUPD_ERROR_INVALID_DATA)) {
+				g_debug("ignoring EFI NVRAM @0x%x: %s",
+					(guint)offset,
+					error_local->message);
+			}
+			offset += 0x1000;
+			continue;
+		}
+
+		/* sanity check */
+		if (fu_firmware_get_size(img) == 0) {
+			g_set_error_literal(error,
+					    FWUPD_ERROR,
+					    FWUPD_ERROR_INTERNAL,
+					    "NVRAM store entry has zero size");
+			return FALSE;
+		}
+
+		/* preserve the exact padding between EVSA stores */
+		if (offset != offset_last) {
+			g_autoptr(GBytes) blob = g_bytes_new(NULL, 0);
+			g_autoptr(GBytes) blob_padded =
+			    fu_bytes_pad(blob, offset - offset_last, 0xFF);
+			g_autoptr(FuFirmware) img_padded = fu_firmware_new_from_bytes(blob_padded);
+			fu_firmware_add_image(FU_FIRMWARE(self), img_padded);
+		}
+
+		/* we found something */
+		fu_firmware_set_offset(img, offset);
+		fu_firmware_add_image(FU_FIRMWARE(self), img);
+		offset += fu_firmware_get_size(img);
+		offset = fu_common_align_up(offset, FU_FIRMWARE_ALIGNMENT_4K);
+		found_cnt += 1;
+
+		/* the last thing we found */
+		offset_last = offset;
+	}
+
+	/* we found nothing */
+	if (found_cnt == 0) {
+		g_set_error_literal(error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_INTERNAL,
+				    "no NVRAM stores found");
+		return FALSE;
+	}
+
+	/* success */
+	return TRUE;
 }
 
 static gboolean
@@ -189,9 +270,19 @@ fu_efi_volume_parse(FuFirmware *firmware,
 		fu_firmware_add_image(firmware, img);
 	} else if (g_strcmp0(guid_str, FU_EFI_VOLUME_GUID_NVRAM_EVSA) == 0 ||
 		   g_strcmp0(guid_str, FU_EFI_VOLUME_GUID_NVRAM_EVSA2) == 0) {
-		g_debug("ignoring %s [%s] EFI FV", guid_str, fu_efi_guid_to_name(guid_str));
-		if (!fu_firmware_set_stream(firmware, partial_stream, error))
-			return FALSE;
+		g_autoptr(GError) error_local = NULL;
+		if (!fu_efi_volume_parse_nvram_evsa(self,
+						    stream,
+						    hdr_length,
+						    flags,
+						    &error_local)) {
+			g_debug("ignoring %s [%s] EFI FV: %s",
+				guid_str,
+				fu_efi_guid_to_name(guid_str),
+				error_local->message);
+			if (!fu_firmware_set_stream(firmware, partial_stream, error))
+				return FALSE;
+		}
 	} else {
 		g_warning("no idea how to parse %s [%s] EFI volume",
 			  guid_str,
@@ -233,13 +324,14 @@ fu_efi_volume_write(FuFirmware *firmware, GError **error)
 {
 	FuEfiVolume *self = FU_EFI_VOLUME(firmware);
 	FuEfiVolumePrivate *priv = GET_PRIVATE(self);
-	g_autoptr(GByteArray) buf = fu_struct_efi_volume_new();
-	g_autoptr(GByteArray) st_blk = fu_struct_efi_volume_block_map_new();
+	g_autoptr(FuStructEfiVolume) buf = fu_struct_efi_volume_new();
+	g_autoptr(FuStructEfiVolumeBlockMap) st_blk = fu_struct_efi_volume_block_map_new();
 	fwupd_guid_t guid = {0x0};
 	guint32 hdr_length = 0x48;
 	guint64 fv_length;
+	g_autoptr(FuChunkArray) chunks = NULL;
 	g_autoptr(GBytes) img_blob = NULL;
-	g_autoptr(FuFirmware) img = NULL;
+	g_autoptr(GPtrArray) images = NULL;
 
 	/* sanity check */
 	if (fu_firmware_get_alignment(firmware) > FU_FIRMWARE_ALIGNMENT_1M) {
@@ -263,25 +355,43 @@ fu_efi_volume_write(FuFirmware *firmware, GError **error)
 		return NULL;
 
 	/* length */
-	img = fu_firmware_get_image_by_id(firmware, NULL, NULL);
-	if (img != NULL) {
-		img_blob = fu_firmware_write(img, error);
-		if (img_blob == NULL) {
-			g_prefix_error_literal(error, "no EFI FV child payload: ");
-			return NULL;
-		}
-	} else {
+	images = fu_firmware_get_images(firmware);
+	if (images->len == 0) {
 		img_blob = fu_firmware_get_bytes_with_patches(firmware, error);
 		if (img_blob == NULL) {
 			g_prefix_error_literal(error, "no EFI FV payload: ");
 			return NULL;
 		}
+	} else {
+		g_autoptr(GByteArray) buf_tmp = g_byte_array_new();
+		for (guint i = 0; i < images->len; i++) {
+			FuFirmware *img = g_ptr_array_index(images, i);
+			g_autoptr(GBytes) img_blob_tmp = NULL;
+
+			img_blob_tmp = fu_firmware_write(img, error);
+			if (img_blob_tmp == NULL) {
+				g_prefix_error_literal(error, "no EFI FV child payload: ");
+				return NULL;
+			}
+			fu_byte_array_append_bytes(buf_tmp, img_blob_tmp);
+		}
+		img_blob =
+		    g_byte_array_free_to_bytes(g_steal_pointer(&buf_tmp)); /* nocheck:blocked */
 	}
 
 	/* pack */
 	fu_struct_efi_volume_set_guid(buf, &guid);
 	fv_length = fu_common_align_up(hdr_length + g_bytes_get_size(img_blob),
 				       fu_firmware_get_alignment(firmware));
+
+	/* we want a minimum size of volume */
+	if (fu_firmware_get_size(firmware) > fv_length) {
+		g_debug("padding FV from 0x%x to 0x%x",
+			(guint)fv_length,
+			(guint)fu_firmware_get_size(firmware));
+		fv_length = fu_firmware_get_size(firmware);
+	}
+
 	fu_struct_efi_volume_set_length(buf, fv_length);
 	fu_struct_efi_volume_set_attrs(buf,
 				       priv->attrs |
@@ -289,8 +399,12 @@ fu_efi_volume_write(FuFirmware *firmware, GError **error)
 	fu_struct_efi_volume_set_hdr_len(buf, hdr_length);
 
 	/* blockmap */
-	fu_struct_efi_volume_block_map_set_num_blocks(st_blk, fv_length);
-	fu_struct_efi_volume_block_map_set_length(st_blk, 0x1);
+	chunks = fu_chunk_array_new_virtual(fv_length,
+					    FU_CHUNK_ADDR_OFFSET_NONE,
+					    FU_CHUNK_PAGESZ_NONE,
+					    0x1000);
+	fu_struct_efi_volume_block_map_set_num_blocks(st_blk, fu_chunk_array_length(chunks));
+	fu_struct_efi_volume_block_map_set_length(st_blk, 0x1000);
 	g_byte_array_append(buf, st_blk->data, st_blk->len);
 	fu_struct_efi_volume_block_map_set_num_blocks(st_blk, 0x0);
 	fu_struct_efi_volume_block_map_set_length(st_blk, 0x0);
@@ -315,6 +429,8 @@ fu_efi_volume_init(FuEfiVolume *self)
 	FuEfiVolumePrivate *priv = GET_PRIVATE(self);
 	priv->attrs = 0xfeff;
 	g_type_ensure(FU_TYPE_EFI_FILESYSTEM);
+	g_type_ensure(FU_TYPE_EFI_VSS2_VARIABLE_STORE);
+	g_type_ensure(FU_TYPE_EFI_FTW_STORE);
 }
 
 static void

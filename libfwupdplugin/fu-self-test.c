@@ -2039,18 +2039,18 @@ fu_common_kernel_search_func(void)
 }
 
 static gboolean
-fu_test_open_cb(GObject *device, GError **error)
+fu_test_open_cb(FuDevice *device, GError **error)
 {
-	g_assert_cmpstr(g_object_get_data(device, "state"), ==, "closed");
-	g_object_set_data(device, "state", (gpointer) "opened");
+	g_assert_cmpstr(g_object_get_data(G_OBJECT(device), "state"), ==, "closed");
+	g_object_set_data(G_OBJECT(device), "state", (gpointer) "opened");
 	return TRUE;
 }
 
 static gboolean
-fu_test_close_cb(GObject *device, GError **error)
+fu_test_close_cb(FuDevice *device, GError **error)
 {
-	g_assert_cmpstr(g_object_get_data(device, "state"), ==, "opened");
-	g_object_set_data(device, "state", (gpointer) "closed-on-unref");
+	g_assert_cmpstr(g_object_get_data(G_OBJECT(device), "state"), ==, "opened");
+	g_object_set_data(G_OBJECT(device), "state", (gpointer) "closed-on-unref");
 	return TRUE;
 }
 
@@ -2059,14 +2059,14 @@ fu_device_locker_func(void)
 {
 	g_autoptr(FuDeviceLocker) locker = NULL;
 	g_autoptr(GError) error = NULL;
-	g_autoptr(GObject) device = g_object_new(G_TYPE_OBJECT, NULL);
+	g_autoptr(FuDevice) device = fu_device_new(NULL);
 
-	g_object_set_data(device, "state", (gpointer) "closed");
+	g_object_set_data(G_OBJECT(device), "state", (gpointer) "closed");
 	locker = fu_device_locker_new_full(device, fu_test_open_cb, fu_test_close_cb, &error);
 	g_assert_no_error(error);
 	g_assert_nonnull(locker);
 	g_clear_object(&locker);
-	g_assert_cmpstr(g_object_get_data(device, "state"), ==, "closed-on-unref");
+	g_assert_cmpstr(g_object_get_data(G_OBJECT(device), "state"), ==, "closed-on-unref");
 }
 
 static gboolean
@@ -3213,6 +3213,58 @@ fu_chunk_func(void)
 }
 
 static void
+fu_chunk_array_null_func(void)
+{
+	g_autofree gchar *chunked1_str = NULL;
+	g_autofree gchar *chunked2_str = NULL;
+	g_autoptr(GPtrArray) chunked1 = NULL;
+	g_autoptr(GPtrArray) chunked2 = NULL;
+
+	chunked1 = fu_chunk_array_new(NULL, 0x100, 0, 0x100, 0x80);
+	g_assert_cmpint(chunked1->len, ==, 2);
+	chunked1_str = fu_chunk_array_to_string(chunked1);
+	g_assert_cmpstr(chunked1_str,
+			==,
+			"<chunks>\n"
+			"  <chunk>\n"
+			"    <size>0x80</size>\n"
+			"  </chunk>\n"
+			"  <chunk>\n"
+			"    <idx>0x1</idx>\n"
+			"    <addr>0x80</addr>\n"
+			"    <size>0x80</size>\n"
+			"  </chunk>\n"
+			"</chunks>\n");
+
+	chunked2 = fu_chunk_array_new(NULL, 0x200, 0, 0x100, 0x80);
+	g_assert_cmpint(chunked2->len, ==, 4);
+	chunked2_str = fu_chunk_array_to_string(chunked2);
+	g_assert_cmpstr(chunked2_str,
+			==,
+			"<chunks>\n"
+			"  <chunk>\n"
+			"    <size>0x80</size>\n"
+			"  </chunk>\n"
+			"  <chunk>\n"
+			"    <idx>0x1</idx>\n"
+			"    <addr>0x80</addr>\n"
+			"    <size>0x80</size>\n"
+			"  </chunk>\n"
+			"  <chunk>\n"
+			"    <idx>0x2</idx>\n"
+			"    <page>0x1</page>\n"
+			"    <size>0x80</size>\n"
+			"  </chunk>\n"
+			"  <chunk>\n"
+			"    <idx>0x3</idx>\n"
+			"    <page>0x1</page>\n"
+			"    <addr>0x80</addr>\n"
+			"    <size>0x80</size>\n"
+			"  </chunk>\n"
+			"</chunks>\n");
+}
+
+static void
 fu_strstrip_func(void)
 {
 	struct {
@@ -3944,6 +3996,76 @@ fu_firmware_fmap_func(void)
 	g_assert_cmpstr(csum,
 			==,
 			"229fcd952264f42ae4853eda7e716cc5c1ae18e7f804a6ba39ab1dfde5737d7e");
+}
+
+static void
+fu_firmware_sorted_func(void)
+{
+	g_autofree gchar *xml1 = NULL;
+	g_autofree gchar *xml2 = NULL;
+	g_autoptr(FuFirmware) firmware1 = fu_firmware_new();
+	g_autoptr(FuFirmware) firmware2 = fu_firmware_new();
+	g_autoptr(FuFirmware) firmware3 = fu_firmware_new();
+	g_autoptr(FuFirmware) firmware = fu_firmware_new();
+	g_autoptr(GError) error = NULL;
+
+	fu_firmware_set_id(firmware1, "zzz");
+	fu_firmware_set_id(firmware2, "aaa");
+	fu_firmware_set_id(firmware3, "bbb");
+
+	fu_firmware_set_idx(firmware1, 0x999);
+	fu_firmware_set_idx(firmware2, 0x200);
+	fu_firmware_set_idx(firmware3, 0x100);
+
+	fu_firmware_add_image(firmware, firmware1);
+	fu_firmware_add_image(firmware, firmware2);
+	fu_firmware_add_image(firmware, firmware3);
+
+	/* by idx */
+	fu_firmware_add_flag(firmware, FU_FIRMWARE_FLAG_DEDUPE_IDX);
+	xml1 = fu_firmware_export_to_xml(firmware, FU_FIRMWARE_EXPORT_FLAG_SORTED, &error);
+	g_assert_no_error(error);
+	g_debug("%s", xml1);
+	g_assert_cmpstr(xml1,
+			==,
+			"<firmware>\n"
+			"  <flags>dedupe-idx</flags>\n"
+			"  <firmware>\n"
+			"    <id>bbb</id>\n"
+			"    <idx>0x100</idx>\n"
+			"  </firmware>\n"
+			"  <firmware>\n"
+			"    <id>aaa</id>\n"
+			"    <idx>0x200</idx>\n"
+			"  </firmware>\n"
+			"  <firmware>\n"
+			"    <id>zzz</id>\n"
+			"    <idx>0x999</idx>\n"
+			"  </firmware>\n"
+			"</firmware>\n");
+
+	/* now by both, here using id as it is last */
+	fu_firmware_add_flag(firmware, FU_FIRMWARE_FLAG_DEDUPE_ID);
+	xml2 = fu_firmware_export_to_xml(firmware, FU_FIRMWARE_EXPORT_FLAG_SORTED, &error);
+	g_assert_no_error(error);
+	g_debug("%s", xml2);
+	g_assert_cmpstr(xml2,
+			==,
+			"<firmware>\n"
+			"  <flags>dedupe-id,dedupe-idx</flags>\n"
+			"  <firmware>\n"
+			"    <id>aaa</id>\n"
+			"    <idx>0x200</idx>\n"
+			"  </firmware>\n"
+			"  <firmware>\n"
+			"    <id>bbb</id>\n"
+			"    <idx>0x100</idx>\n"
+			"  </firmware>\n"
+			"  <firmware>\n"
+			"    <id>zzz</id>\n"
+			"    <idx>0x999</idx>\n"
+			"  </firmware>\n"
+			"</firmware>\n");
 }
 
 static void
@@ -5387,15 +5509,39 @@ fu_firmware_builder_round_trip_func(void)
 		FU_FIRMWARE_BUILDER_FLAG_NONE,
 	    },
 	    {
+		FU_TYPE_EFI_FTW_STORE,
+		"efi-ftw-store.builder.xml",
+		"9bdb363e31e00d7fb0b42eacdc95771a3795b7ec",
+		FU_FIRMWARE_BUILDER_FLAG_NONE,
+	    },
+	    {
+		FU_TYPE_EFI_VSS_AUTH_VARIABLE,
+		"efi-vss-auth-variable.builder.xml",
+		"de6391f8b09653859b4ff93a7d5004c52c35d5c2",
+		FU_FIRMWARE_BUILDER_FLAG_NONE,
+	    },
+	    {
+		FU_TYPE_EFI_VSS2_VARIABLE_STORE,
+		"efi-vss2-variable-store.builder.xml",
+		"25ef7bf7ea600c8a739ff4dc6876bcd2f9d8d30d",
+		FU_FIRMWARE_BUILDER_FLAG_NONE,
+	    },
+	    {
 		FU_TYPE_EFI_VOLUME,
 		"efi-volume.builder.xml",
-		"e4d8e1a15ef20f97acf2d5bf3a75da5865a2db0b",
+		"d0f658bce79c8468458e0b64e7de24f45c063076",
+		FU_FIRMWARE_BUILDER_FLAG_NONE,
+	    },
+	    {
+		FU_TYPE_EFI_VOLUME,
+		"efi-volume-sized.builder.xml",
+		"d7087ea16218d700b9175a9cd0c27bd56b07a6d4",
 		FU_FIRMWARE_BUILDER_FLAG_NONE,
 	    },
 	    {
 		FU_TYPE_IFD_FIRMWARE,
 		"ifd.builder.xml",
-		"06ae066ea53cefe43fed2f1ca4fc7d8cccdbcf1e",
+		"494e7be6a72e743e6738c0ecdbdcddbf27d1dbd7",
 		FU_FIRMWARE_BUILDER_FLAG_NO_BINARY_COMPARE,
 	    },
 	    {
@@ -7091,6 +7237,7 @@ main(int argc, char **argv)
 	g_test_add_func("/fwupd/backend", fu_backend_func);
 	g_test_add_func("/fwupd/backend{emulate}", fu_backend_emulate_func);
 	g_test_add_func("/fwupd/chunk", fu_chunk_func);
+	g_test_add_func("/fwupd/chunk-null", fu_chunk_array_null_func);
 	g_test_add_func("/fwupd/chunks", fu_chunk_array_func);
 	g_test_add_func("/fwupd/common{error-map}", fu_common_error_map_func);
 	g_test_add_func("/fwupd/common{align-up}", fu_common_align_up_func);
@@ -7168,6 +7315,7 @@ main(int argc, char **argv)
 	g_test_add_func("/fwupd/firmware{builder-round-trip}", fu_firmware_builder_round_trip_func);
 	g_test_add_func("/fwupd/firmware{fmap}", fu_firmware_fmap_func);
 	g_test_add_func("/fwupd/firmware{gtypes}", fu_firmware_new_from_gtypes_func);
+	g_test_add_func("/fwupd/firmware{sorted}", fu_firmware_sorted_func);
 	g_test_add_func("/fwupd/archive{invalid}", fu_archive_invalid_func);
 	g_test_add_func("/fwupd/archive{cab}", fu_archive_cab_func);
 	g_test_add_func("/fwupd/device", fu_device_func);

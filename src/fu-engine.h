@@ -82,6 +82,8 @@ fu_engine_get_releases(FuEngine *self,
 		       const gchar *device_id,
 		       GError **error) G_GNUC_NON_NULL(1, 2, 3);
 GPtrArray *
+fu_engine_search(FuEngine *self, const gchar *token, GError **error) G_GNUC_NON_NULL(1, 2);
+GPtrArray *
 fu_engine_get_downgrades(FuEngine *self,
 			 FuEngineRequest *request,
 			 const gchar *device_id,
@@ -157,10 +159,9 @@ fu_engine_composite_cleanup(FuEngine *self, GPtrArray *devices, GError **error)
 gboolean
 fu_engine_install_release(FuEngine *self,
 			  FuRelease *release,
-			  GInputStream *stream,
 			  FuProgress *progress,
 			  FwupdInstallFlags flags,
-			  GError **error) G_GNUC_NON_NULL(1, 2, 3, 4);
+			  GError **error) G_GNUC_NON_NULL(1, 2, 3);
 gboolean
 fu_engine_install_blob(FuEngine *self,
 		       FuDevice *device,

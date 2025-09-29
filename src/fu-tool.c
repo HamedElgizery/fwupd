@@ -2326,6 +2326,53 @@ fu_util_remote_disable(FuUtil *self, gchar **values, GError **error)
 }
 
 static gboolean
+fu_util_search(FuUtil *self, gchar **values, GError **error)
+{
+	g_autoptr(GPtrArray) rels = NULL;
+	g_autoptr(FuUtilNode) root = g_node_new(NULL);
+
+	/* sanity check */
+	if (g_strv_length(values) < 1) {
+		g_set_error_literal(error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_INVALID_ARGS,
+				    "Invalid arguments, expected WORD");
+		return FALSE;
+	}
+
+	/* load engine */
+	if (!fu_engine_load(self->engine, FU_ENGINE_LOAD_FLAG_READONLY, self->progress, error))
+		return FALSE;
+
+	/* get search results */
+	rels = fu_engine_search(self->engine, values[0], error);
+	if (rels == NULL)
+		return FALSE;
+	if (rels->len == 0) {
+		g_set_error_literal(error,
+				    FWUPD_ERROR,
+				    FWUPD_ERROR_NOT_FOUND,
+				    "No matching releases for search token");
+		return FALSE;
+	}
+	if (self->as_json) {
+		g_autoptr(JsonBuilder) builder = json_builder_new();
+		json_builder_begin_object(builder);
+		fwupd_codec_array_to_json(rels, "Releases", builder, FWUPD_CODEC_FLAG_TRUSTED);
+		json_builder_end_object(builder);
+		return fu_util_print_builder(self->console, builder, error);
+	}
+	for (guint i = 0; i < rels->len; i++) {
+		FuRelease *rel = g_ptr_array_index(rels, i);
+		g_node_append_data(root, g_object_ref(rel));
+	}
+	fu_util_print_node(self->console, self->client, root);
+
+	/* success */
+	return TRUE;
+}
+
+static gboolean
 fu_util_vercmp(FuUtil *self, gchar **values, GError **error)
 {
 	FwupdVersionFormat verfmt = FWUPD_VERSION_FORMAT_UNKNOWN;
@@ -2678,10 +2725,6 @@ fu_util_hwids(FuUtil *self, gchar **values, GError **error)
 		g_auto(GStrv) keysv = NULL;
 		g_autoptr(GError) error_local = NULL;
 
-		/* filter */
-		if (!g_str_has_prefix(key, "HardwareID"))
-			continue;
-
 		/* get the GUID */
 		keys = fu_hwids_get_replace_keys(hwids, key);
 		guid = fu_hwids_get_guid(hwids, key, &error_local);
@@ -2696,35 +2739,7 @@ fu_util_hwids(FuUtil *self, gchar **values, GError **error)
 		fu_console_print(self->console, "{%s}   <- %s", guid, keys_str);
 	}
 
-	/* show extra GUIDs */
-	fu_console_print_literal(self->console, "Extra Hardware IDs");
-	fu_console_print_literal(self->console, "------------------");
-	for (guint i = 0; i < chid_keys->len; i++) {
-		const gchar *key = g_ptr_array_index(chid_keys, i);
-		const gchar *keys = NULL;
-		g_autofree gchar *guid = NULL;
-		g_autofree gchar *keys_str = NULL;
-		g_auto(GStrv) keysv = NULL;
-		g_autoptr(GError) error_local = NULL;
-
-		/* filter */
-		if (g_str_has_prefix(key, "HardwareID"))
-			continue;
-
-		/* get the GUID */
-		keys = fu_hwids_get_replace_keys(hwids, key);
-		guid = fu_hwids_get_guid(hwids, key, &error_local);
-		if (guid == NULL) {
-			fu_console_print_literal(self->console, error_local->message);
-			continue;
-		}
-
-		/* show what makes up the GUID */
-		keysv = g_strsplit(keys, "&", -1);
-		keys_str = g_strjoinv(" + ", keysv);
-		fu_console_print(self->console, "{%s}   <- %s", guid, keys_str);
-	}
-
+	/* success */
 	return TRUE;
 }
 
@@ -3127,10 +3142,70 @@ fu_util_firmware_export(FuUtil *self, gchar **values, GError **error)
 		return FALSE;
 	if (self->show_all)
 		flags |= FU_FIRMWARE_EXPORT_FLAG_INCLUDE_DEBUG;
-	str = fu_firmware_export_to_xml(firmware, flags, error);
+	str = fu_firmware_export_to_xml(firmware, flags | FU_FIRMWARE_EXPORT_FLAG_SORTED, error);
 	if (str == NULL)
 		return FALSE;
 	fu_console_print_literal(self->console, str);
+	return TRUE;
+}
+
+static gboolean
+fu_util_firmware_extract_image(FuUtil *self,
+			       FuFirmware *firmware,
+			       const gchar *idxstr,
+			       GError **error)
+{
+	g_autofree gchar *fn = NULL;
+	g_autoptr(GBytes) blob = NULL;
+
+	/* get raw image without generated header, footer or crc */
+	blob = fu_firmware_get_bytes(firmware, error);
+	if (blob == NULL) {
+		g_prefix_error(error,
+			       "failed to get bytes for image %s: ",
+			       fu_firmware_get_id(firmware));
+		return FALSE;
+	}
+	if (g_bytes_get_size(blob) == 0)
+		return TRUE;
+
+	/* use suitable filename */
+	if (fu_firmware_get_filename(firmware) != NULL) {
+		fn = g_strdup(fu_firmware_get_filename(firmware));
+	} else if (fu_firmware_get_id(firmware) != NULL) {
+		fn = g_strdup_printf("id-%s.fw", fu_firmware_get_id(firmware));
+	} else if (fu_firmware_get_idx(firmware) != 0x0) {
+		fn = g_strdup_printf("idx-0x%x.fw", (guint)fu_firmware_get_idx(firmware));
+	} else {
+		fn = g_strdup_printf("img-%s.fw", idxstr);
+	}
+
+	/* TRANSLATORS: decompressing images from a container firmware */
+	fu_console_print(self->console, "%s : %s", _("Writing file:"), fn);
+	return fu_bytes_set_contents(fn, blob, error);
+}
+
+static gboolean
+fu_util_firmware_extract_images(FuUtil *self,
+				FuFirmware *firmware,
+				const gchar *idxstr,
+				GError **error)
+{
+	g_autoptr(GPtrArray) images = NULL;
+
+	images = fu_firmware_get_images(firmware);
+	if (images->len == 0)
+		return fu_util_firmware_extract_image(self, firmware, idxstr, error);
+	for (guint i = 0; i < images->len; i++) {
+		FuFirmware *img = g_ptr_array_index(images, i);
+		g_autofree gchar *idxstr_new = idxstr != NULL
+						   ? g_strdup_printf("%s:0x%x", idxstr, i)
+						   : g_strdup_printf("0x%x", i);
+		if (!fu_util_firmware_extract_images(self, img, idxstr_new, error))
+			return FALSE;
+	}
+
+	/* success */
 	return TRUE;
 }
 
@@ -3143,7 +3218,6 @@ fu_util_firmware_extract(FuUtil *self, gchar **values, GError **error)
 	g_autofree gchar *str = NULL;
 	g_autoptr(FuFirmware) firmware = NULL;
 	g_autoptr(GFile) file = NULL;
-	g_autoptr(GPtrArray) images = NULL;
 
 	/* check args */
 	if (g_strv_length(values) == 0 || g_strv_length(values) > 2) {
@@ -3186,37 +3260,7 @@ fu_util_firmware_extract(FuUtil *self, gchar **values, GError **error)
 		return FALSE;
 	str = fu_firmware_to_string(firmware);
 	fu_console_print_literal(self->console, str);
-	images = fu_firmware_get_images(firmware);
-	for (guint i = 0; i < images->len; i++) {
-		FuFirmware *img = g_ptr_array_index(images, i);
-		g_autofree gchar *fn = NULL;
-		g_autoptr(GBytes) blob_img = NULL;
-
-		/* get raw image without generated header, footer or crc */
-		blob_img = fu_firmware_get_bytes(img, error);
-		if (blob_img == NULL)
-			return FALSE;
-		if (g_bytes_get_size(blob_img) == 0)
-			continue;
-
-		/* use suitable filename */
-		if (fu_firmware_get_filename(img) != NULL) {
-			fn = g_strdup(fu_firmware_get_filename(img));
-		} else if (fu_firmware_get_id(img) != NULL) {
-			fn = g_strdup_printf("id-%s.fw", fu_firmware_get_id(img));
-		} else if (fu_firmware_get_idx(img) != 0x0) {
-			fn = g_strdup_printf("idx-0x%x.fw", (guint)fu_firmware_get_idx(img));
-		} else {
-			fn = g_strdup_printf("img-0x%x.fw", i);
-		}
-		/* TRANSLATORS: decompressing images from a container firmware */
-		fu_console_print(self->console, "%s : %s", _("Writing file:"), fn);
-		if (!fu_bytes_set_contents(fn, blob_img, error))
-			return FALSE;
-	}
-
-	/* success */
-	return TRUE;
+	return fu_util_firmware_extract_images(self, firmware, NULL, error);
 }
 
 static gboolean
@@ -3991,7 +4035,7 @@ static gboolean
 fu_util_esp_list(FuUtil *self, gchar **values, GError **error)
 {
 	g_autofree gchar *mount_point = NULL;
-	g_autoptr(FuDeviceLocker) locker = NULL;
+	g_autoptr(FuVolumeLocker) locker = NULL;
 	g_autoptr(FuVolume) volume = NULL;
 	g_autoptr(GPtrArray) files = NULL;
 
@@ -4003,7 +4047,7 @@ fu_util_esp_list(FuUtil *self, gchar **values, GError **error)
 	volume = fu_util_prompt_for_volume(self, error);
 	if (volume == NULL)
 		return FALSE;
-	locker = fu_volume_locker(volume, error);
+	locker = fu_volume_locker_new(volume, error);
 	if (locker == NULL)
 		return FALSE;
 	mount_point = fu_volume_get_mount_point(volume);
@@ -5712,6 +5756,13 @@ main(int argc, char *argv[])
 			      /* TRANSLATORS: command description */
 			      _("Compares two versions for equality"),
 			      fu_util_vercmp);
+	fu_util_cmd_array_add(cmd_array,
+			      "search",
+			      /* TRANSLATORS: command argument: uppercase, spaces->dashes */
+			      _("WORD"),
+			      /* TRANSLATORS: command description */
+			      _("Finds firmware releases from the metadata"),
+			      fu_util_search);
 
 	/* do stuff on ctrl+c */
 	self->cancellable = g_cancellable_new();

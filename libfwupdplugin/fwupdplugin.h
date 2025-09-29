@@ -39,6 +39,7 @@
 #include <libfwupdplugin/fu-device-event.h>
 #include <libfwupdplugin/fu-device-locker.h>
 #include <libfwupdplugin/fu-device-metadata.h>
+#include <libfwupdplugin/fu-device-poll-locker.h>
 #include <libfwupdplugin/fu-device.h>
 #include <libfwupdplugin/fu-dfu-firmware.h>
 #include <libfwupdplugin/fu-dfuse-firmware.h>
@@ -51,6 +52,7 @@
 #include <libfwupdplugin/fu-efi-file-path-device-path.h>
 #include <libfwupdplugin/fu-efi-file.h>
 #include <libfwupdplugin/fu-efi-filesystem.h>
+#include <libfwupdplugin/fu-efi-ftw-store.h>
 #include <libfwupdplugin/fu-efi-hard-drive-device-path.h>
 #include <libfwupdplugin/fu-efi-load-option.h>
 #include <libfwupdplugin/fu-efi-section.h>
@@ -58,6 +60,8 @@
 #include <libfwupdplugin/fu-efi-signature.h>
 #include <libfwupdplugin/fu-efi-variable-authentication2.h>
 #include <libfwupdplugin/fu-efi-volume.h>
+#include <libfwupdplugin/fu-efi-vss-auth-variable.h>
+#include <libfwupdplugin/fu-efi-vss2-variable-store.h>
 #include <libfwupdplugin/fu-efi-x509-device.h>
 #include <libfwupdplugin/fu-efi-x509-signature.h>
 #include <libfwupdplugin/fu-efivars.h>
@@ -88,6 +92,7 @@
 #include <libfwupdplugin/fu-intel-thunderbolt-nvm.h>
 #include <libfwupdplugin/fu-io-channel.h>
 #include <libfwupdplugin/fu-ioctl.h>
+#include <libfwupdplugin/fu-kenv.h>
 #include <libfwupdplugin/fu-kernel-search-path.h>
 #include <libfwupdplugin/fu-kernel.h>
 #include <libfwupdplugin/fu-linear-firmware.h>
@@ -117,6 +122,7 @@
 #include <libfwupdplugin/fu-udev-device.h>
 #include <libfwupdplugin/fu-usb-bos-descriptor.h>
 #include <libfwupdplugin/fu-v4l-device.h>
+#include <libfwupdplugin/fu-volume-locker.h>
 #include <libfwupdplugin/fu-x509-certificate.h>
 // #include <libfwupdplugin/fu-usb-common.h>
 #include <libfwupdplugin/fu-uefi-device.h>

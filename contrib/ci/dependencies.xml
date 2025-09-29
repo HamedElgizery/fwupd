@@ -21,6 +21,9 @@
       <package variant="aarch64" />
       <package variant="mingw64" />
     </distro>
+    <distro id="freebsd">
+      <package variant="amd64" />
+    </distro>
   </dependency>
   <dependency id="pesign">
     <distro id="centos">
@@ -213,6 +216,9 @@
       <package variant="x86_64" />
       <package variant="aarch64" />
     </distro>
+    <distro id="freebsd">
+      <package>libdrm</package>
+    </distro>
   </dependency>
   <dependency id="libjson-glib-dev">
     <distro id="arch">
@@ -262,6 +268,9 @@
       <package variant="x86_64" />
       <package variant="aarch64" />
     </distro>
+    <distro id="freebsd">
+      <package variant="amd64">libftdi1</package>
+    </distro>
   </dependency>
   <dependency id="libpci-dev">
     <distro id="arch">
@@ -284,6 +293,9 @@
       <package variant="x86_64" />
       <package variant="aarch64" />
     </distro>
+    <distro id="freebsd">
+      <package variant="amd64">libpci</package>
+    </distro>
   </dependency>
   <dependency id="fonts-noto">
     <distro id="arch">
@@ -305,6 +317,9 @@
       <control />
       <package variant="x86_64" />
       <package variant="aarch64" />
+    </distro>
+    <distro id="freebsd">
+      <package>noto-sans</package>
     </distro>
   </dependency>
   <dependency id="devscripts">
@@ -518,6 +533,9 @@
       <package variant="x86_64" />
       <package variant="aarch64" />
     </distro>
+    <distro id="freebsd">
+      <package>gettext</package>
+    </distro>
   </dependency>
   <dependency id="gnupg2">
     <distro id="centos">
@@ -526,6 +544,9 @@
     <distro id="fedora">
       <package variant="x86_64" />
       <package variant="aarch64" />
+    </distro>
+    <distro id="freebsd">
+      <package>gpgme</package>
     </distro>
   </dependency>
   <dependency id="gnu-efi-devel">
@@ -612,6 +633,9 @@
       <package variant="x86_64" />
       <package variant="aarch64" />
     </distro>
+    <distro id="freebsd">
+      <package>glib</package>
+    </distro>
   </dependency>
   <dependency id="glibc-langpack-en">
     <distro id="centos">
@@ -645,6 +669,9 @@
       <control />
       <package variant="x86_64" />
       <package variant="aarch64" />
+    </distro>
+    <distro id="freebsd">
+      <package variant="amd64" />
     </distro>
   </dependency>
   <dependency id="gnome-desktop-testing">
@@ -682,6 +709,9 @@
       <control />
       <package variant="x86_64" />
       <package variant="aarch64" />
+    </distro>
+    <distro id="freebsd">
+      <package>gnutls</package>
     </distro>
   </dependency>
   <dependency id="gnutls-bin">
@@ -724,6 +754,9 @@
     <distro id="arch">
       <package variant="x86_64" />
     </distro>
+    <distro id="freebsd">
+      <package variant="x86_64" />
+    </distro>
   </dependency>
   <dependency id="libxmlb-dev">
     <distro id="arch">
@@ -752,6 +785,9 @@
       <package variant="x86_64" />
       <package variant="aarch64" />
     </distro>
+    <distro id="freebsd">
+      <package>libxmlb</package>
+    </distro>
   </dependency>
   <dependency id="libjcat-dev">
     <distro id="arch">
@@ -774,6 +810,9 @@
       <control />
       <package variant="x86_64" />
       <package variant="aarch64" />
+    </distro>
+    <distro id="freebsd">
+      <package>libjcat</package>
     </distro>
   </dependency>
   <dependency id="libblkid-dev">
@@ -853,6 +892,9 @@
     <distro id="darwin">
       <package>libarchive</package>
     </distro>
+    <distro id="freebsd">
+      <package>libarchive</package>
+    </distro>
   </dependency>
   <dependency id="libcbor-dev">
     <distro id="arch">
@@ -875,6 +917,9 @@
       <control />
       <package variant="x86_64" />
       <package variant="aarch64" />
+    </distro>
+    <distro id="freebsd">
+      <package>libcbor</package>
     </distro>
   </dependency>
   <dependency id="libgirepository1.0-dev">
@@ -1043,6 +1088,9 @@
       <package variant="x86_64" />
       <package variant="aarch64" />
     </distro>
+    <distro id="freebsd">
+      <package variant="amd64" />
+    </distro>
   </dependency>
   <dependency id="mingw-w64-tools">
     <distro id="centos">
@@ -1089,6 +1137,9 @@
       <package variant="x86_64" />
       <package variant="aarch64" />
     </distro>
+    <distro id="freebsd">
+      <package>pango</package>
+    </distro>
   </dependency>
   <dependency id="pkg-config">
     <distro id="debian">
@@ -1106,6 +1157,9 @@
     </distro>
     <distro id="fedora">
       <package variant="mingw64">mingw64-pkg-config</package>
+    </distro>
+    <distro id="freebsd">
+      <package>pkgconf</package>
     </distro>
   </dependency>
   <dependency id="polkitd">
@@ -1127,6 +1181,9 @@
     <distro id="ubuntu">
       <package variant="x86_64" />
       <package variant="aarch64" />
+    </distro>
+    <distro id="polkit">
+      <package>polkit</package>
     </distro>
   </dependency>
   <dependency id="libmm-glib-dev">
@@ -1248,6 +1305,9 @@
   <dependency id="python34-pip">
     <distro id="arch">
       <package variant="x86_64">python-pip</package>
+    </distro>
+    <distro id="freebsd">
+      <package>py311-pip</package>
     </distro>
   </dependency>
   <dependency id="python3-virtualenv">
@@ -1377,6 +1437,9 @@
       <package variant="x86_64" />
       <package variant="aarch64" />
     </distro>
+    <distro id="freebsd">
+      <package>py311-gi-docgen</package>
+    </distro>
   </dependency>
   <!-- These are needed for gi-docgen -->
   <dependency id="python3-pygments">
@@ -1405,16 +1468,7 @@
     </distro>
   </dependency>
   <dependency id="python3-toml">
-    <distro id="debian">
-      <control />
-      <package variant="x86_64" />
-      <package variant="i386" />
-    </distro>
     <distro id="fedora">
-      <package variant="x86_64" />
-      <package variant="aarch64" />
-    </distro>
-    <distro id="ubuntu">
       <package variant="x86_64" />
       <package variant="aarch64" />
     </distro>
@@ -1460,6 +1514,9 @@
     <distro id="fedora">
       <package variant="x86_64" />
       <package variant="aarch64" />
+    </distro>
+    <distro id="freebsd">
+      <package>py311-pygobject</package>
     </distro>
   </dependency>
   <dependency id="python3-requests">
@@ -1551,6 +1608,9 @@
     </distro>
     <distro id="darwin">
       <package>sqlite</package>
+    </distro>
+    <distro id="freebsd">
+      <package>sqlite3</package>
     </distro>
   </dependency>
   <dependency id="systemd">
@@ -1708,6 +1768,9 @@
       <package variant="i386">valgrind-if-available</package>
       <package variant="aarch64">valgrind-if-available</package>
     </distro>
+    <distro id="freebsd">
+      <package>valgrind</package>
+    </distro>
   </dependency>
   <dependency id="wget">
     <distro id="centos">
@@ -1769,6 +1832,17 @@
       <package variant="x86_64">ShellCheck</package>
     </distro>
   </dependency>
+  <dependency id="shfmt">
+    <distro id="fedora">
+      <package variant="x86_64" />
+    </distro>
+    <distro id="debian">
+      <package variant="x86_64" />
+    </distro>
+    <distro id="ubuntu">
+      <package variant="x86_64" />
+    </distro>
+  </dependency>
   <dependency id="libprotobuf-c-dev">
     <distro id="arch">
       <package variant="x86_64">protobuf-c</package>
@@ -1791,6 +1865,9 @@
       <package variant="aarch64">protobuf-c-devel</package>
     </distro>
     <distro id="darwin">
+      <package>protobuf-c</package>
+    </distro>
+    <distro id="freebsd">
       <package>protobuf-c</package>
     </distro>
   </dependency>
@@ -1857,6 +1934,11 @@
     <distro id="fedora">
       <!-- for building the MSI package -->
       <package variant="mingw64">msitools</package>
+    </distro>
+  </dependency>
+  <dependency id="libinotify">
+    <distro id="freebsd">
+      <package variant="amd64" />
     </distro>
   </dependency>
 </dependencies>

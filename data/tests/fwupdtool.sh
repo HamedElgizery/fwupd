@@ -11,105 +11,110 @@ INPUT="@installedtestsdir@/fakedevice124.bin \
        @installedtestsdir@/fakedevice124.metainfo.xml"
 DEVICE=08d460be0f1f9f128413f816022a6439e0078018
 
-error()
-{
-       rc=$1
-       cat fwupdtool.txt
-       exit $rc
+error() {
+    rc=$1
+    cat fwupdtool.txt
+    exit $rc
 }
 
-run()
-{
-       cmd="fwupdtool -v $*"
-       echo "cmd: $cmd" >fwupdtool.txt
-       $cmd 1>>fwupdtool.txt 2>&1
+expect_rc() {
+    expected=$1
+    rc=$?
+
+    [ "$expected" -eq "$rc" ] || error "$rc"
+}
+
+run() {
+    cmd="fwupdtool -v $*"
+    echo "cmd: $cmd" >fwupdtool.txt
+    $cmd 1>>fwupdtool.txt 2>&1
 }
 
 # ---
 echo "Show help output"
 run --help
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Show version output"
 run --version
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Show version output (json)"
 run --version --json
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Showing hwids"
 run hwids
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 UNAME=$(uname -m)
 if [ "${UNAME}" = "x86_64" ] || [ "${UNAME}" = "x86" ]; then
-       EXPECTED=0
+    EXPECTED=0
 else
-       EXPECTED=1
+    EXPECTED=1
 fi
 # ---
 echo "Showing security"
 run security
-rc=$?; if [ $rc != $EXPECTED ]; then error $rc; fi
+expect_rc $EXPECTED
 
 # ---
 echo "Showing plugins"
 run get-plugins
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Showing plugins (json)"
 run get-plugins --json
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Enabling test device..."
 run enable-test-devices
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Checking device-flags"
 run get-device-flags
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Checking firmware-gtypes"
 run get-firmware-gtypes
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Checking firmware-types"
 run get-firmware-types
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Checking for updates"
 run get-updates
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Checking for updates"
 run get-updates --json
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Building ${CAB}..."
 run build-cabinet ${CAB} ${INPUT} --force
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Examining ${CAB}..."
 run get-details ${CAB}
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Installing ${CAB} cabinet..."
 run install ${CAB}
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Cleaning ${CAB} generated cabinet ..."
@@ -118,165 +123,179 @@ rm -f ${CAB}
 # ---
 echo "Verifying update..."
 run verify-update ${DEVICE}
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Getting history (should be one)..."
 run get-history
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Clearing history..."
 run clear-history ${DEVICE}
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Getting history (should be none)..."
 run get-history
-rc=$?; if [ $rc != 2 ]; then error $rc; fi
+expect_rc 2
 
 # ---
 echo "Resetting config..."
 run reset-config test
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Testing good version compare"
 run vercmp 1.0.0 1.0.0 triplet
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Testing bad version compare"
 run vercmp 1.0.0 1.0.1 foo
-rc=$?; if [ $rc != 1 ]; then error $rc; fi
+expect_rc 1
 
 # ---
 echo "Getting supported version formats..."
 run get-version-formats --json
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Getting report metadata..."
 run get-report-metadata --json
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Getting the list of remotes"
 run get-remotes --json
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Disabling LVFS remote..."
 run modify-remote lvfs Enabled false
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Enabling LVFS remote..."
 run modify-remote lvfs Enabled true
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Modify unknown remote (should fail)..."
 run modify-remote foo Enabled true
-rc=$?; if [ $rc != 1 ]; then error $rc; fi
+expect_rc 1
 
 # ---
 echo "Modify known remote but unknown key (should fail)..."
 run modify-remote lvfs bar true
-rc=$?; if [ $rc != 3 ]; then error $rc; fi
+expect_rc 3
 
 # ---
 echo "Getting devices (should be one)..."
 run get-devices --json
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Getting all devices, even unsupported ones..."
 run get-devices --show-all --force
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Changing VALID config on test device..."
 run modify-config test AnotherWriteRequired true
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 # ---
 echo "Changing INVALID config on test device...(should fail)"
 run modify-config test Foo true
-rc=$?; if [ $rc != 1 ]; then error $rc; fi
+expect_rc 1
 
 # ---
 echo "Disabling test device..."
 run disable-test-devices
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
 
 BASEDIR=@installedtestsdir@/tests/bios-attrs/dell-xps13-9310/
 if [ -d $BASEDIR ]; then
-       WORKDIR="$(mktemp -d)"
-       cp $BASEDIR $WORKDIR -r
-       export FWUPD_SYSFSFWATTRIBDIR=$WORKDIR/dell-xps13-9310/
-       # ---
-       echo "Get BIOS settings..."
-       run get-bios-settings --json
-       rc=$?; if [ $rc != 0 ]; then error $rc; fi
+    WORKDIR="$(mktemp -d)"
+    cp $BASEDIR $WORKDIR -r
+    export FWUPD_SYSFSFWATTRIBDIR=$WORKDIR/dell-xps13-9310/
+    # ---
+    echo "Get BIOS settings..."
+    run get-bios-settings --json
+    expect_rc 0
 
-       # ---
-       echo "Get BIOS setting as json..."
-       run get-bios-settings WlanAutoSense --json
-       rc=$?; if [ $rc != 0 ]; then error $rc; fi
+    # ---
+    echo "Get BIOS setting as json..."
+    run get-bios-settings WlanAutoSense --json
+    expect_rc 0
 
-       # ---
-       echo "Get BIOS setting as a string..."
-       run get-bios-settings WlanAutoSense
-       rc=$?; if [ $rc != 0 ]; then error $rc; fi
+    # ---
+    echo "Get BIOS setting as a string..."
+    run get-bios-settings WlanAutoSense
+    expect_rc 0
 
-       # ---
-       echo "Modify BIOS setting to different value..."
-       run set-bios-setting WlanAutoSense Enabled  --no-reboot-check
-       rc=$?; if [ $rc != 0 ]; then error $rc; fi
+    # ---
+    echo "Modify BIOS setting to different value..."
+    run set-bios-setting WlanAutoSense Enabled --no-reboot-check
+    expect_rc 0
 
-       # ---
-       echo "Modify BIOS setting back to default..."
-       run set-bios-setting WlanAutoSense Disabled  --no-reboot-check
-       rc=$?; if [ $rc != 0 ]; then error $rc; fi
+    # ---
+    echo "Modify BIOS setting back to default..."
+    run set-bios-setting WlanAutoSense Disabled --no-reboot-check
+    expect_rc 0
 
-       # ---
-       echo "Modify BIOS setting to bad value (should fail)..."
-       run set-bios-setting WlanAutoSense foo  --no-reboot-check
-       rc=$?; if [ $rc != 1 ]; then error $rc; fi
+    # ---
+    echo "Modify BIOS setting to bad value (should fail)..."
+    run set-bios-setting WlanAutoSense foo --no-reboot-check
+    expect_rc 1
 
-       # ---
-       echo "Modify Unknown BIOS setting (should fail)..."
-       run set-bios-setting foo bar  --no-reboot-check
-       rc=$?; if [ $rc != 3 ]; then error $rc; fi
+    # ---
+    echo "Modify Unknown BIOS setting (should fail)..."
+    run set-bios-setting foo bar --no-reboot-check
+    expect_rc 3
 fi
 
 if [ -x /usr/bin/certtool ]; then
 
-       # ---
-       echo "Building unsigned ${CAB}..."
-       INPUT="@installedtestsdir@/fakedevice124.bin \
+    # ---
+    echo "Building unsigned ${CAB}..."
+    INPUT="@installedtestsdir@/fakedevice124.bin \
               @installedtestsdir@/fakedevice124.metainfo.xml"
-       run build-cabinet ${CAB} ${INPUT} --force
-       rc=$?; if [ $rc != 0 ]; then error $rc; fi
+    run build-cabinet ${CAB} ${INPUT} --force
+    expect_rc 0
 
-       # ---
-       echo "Sign ${CAB}"
-       @installedtestsdir@/build-certs.py /tmp
-       run firmware-sign ${CAB} /tmp/testuser.pem /tmp/testuser.key --json
-       rc=$?; if [ $rc != 0 ]; then error $rc; fi
+    # ---
+    echo "Sign ${CAB}"
+    @installedtestsdir@/build-certs.py /tmp
+    run firmware-sign ${CAB} /tmp/testuser.pem /tmp/testuser.key --json
+    expect_rc 0
 
-       # ---
-       echo "Cleaning self-signed ${CAB}..."
-       rm -f ${CAB}
+    # ---
+    echo "Cleaning self-signed ${CAB}..."
+    rm -f ${CAB}
 fi
 
 if [ -z "$CI_NETWORK" ]; then
-        echo "Skipping remaining tests due to CI_NETWORK not being set"
-        exit 0
+    echo "Skipping remaining tests due to CI_NETWORK not being set"
+    exit 0
 fi
 
 # ---
 echo "Refresh remotes"
 run refresh --json
-rc=$?; if [ $rc != 0 ]; then error $rc; fi
+expect_rc 0
+
+# check we can search for known tokens
+run search --json CVE-2022-21894
+expect_rc 0
+run search --json KEK
+expect_rc 0
+run search --json org.uefi.dbx
+expect_rc 0
+run search --json linux
+expect_rc 0
+
+# check we do not find a random search result
+run search --json DOESNOTEXIST
+expect_rc 3

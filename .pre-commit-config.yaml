@@ -96,6 +96,11 @@ repos:
       language: system
       entry: shellcheck --severity=warning -e SC2068
       types: [shell]
+    - id: shfmt
+      name: format shell scripts with shfmt
+      language: system
+      entry: shfmt --write --indent 4
+      types: [shell]
     - id: run-tests
       name: run tests before pushing
       language: system
@@ -106,6 +111,10 @@ repos:
       language: script
       entry: ./contrib/reformat-code.py
       types: [c]
+    - id: check-cli-actions
+      name: check cli actions
+      language: script
+      entry: ./contrib/ci/check-cli-actions.py
     - id: check-license
       name: Check license header
       types_or: [shell, c, python]

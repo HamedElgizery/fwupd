@@ -310,6 +310,26 @@ msgstr[1] " %u naprava ni najboljša znana konfiguracija."
 msgstr[2] "%u napravi nista najboljša znana konfiguracija."
 msgstr[3] "%u naprave niso najboljša znana konfiguracija."
 
+#. TRANSLATORS: how many devices have published updates on
+#. something like the LVFS
+#, c-format
+msgid "%u device is supported in the enabled remotes (an update has been published)"
+msgid_plural "%u devices are supported in the enabled remotes (an update has been published)"
+msgstr[0] "%u naprav je podprtih v omogočenih oddaljenih (posodobitev je že objavljena)"
+msgstr[1] "%u naprava je podprta v omogočenih oddaljenih (posodobitev je že objavljena)"
+msgstr[2] "%u napravi sta podprti v omogočenih oddaljenih (posodobitev je že objavljena)"
+msgstr[3] "%u naprave so podprte v omogočenih oddaljenih (posodobitev je že objavljena)"
+
+#. TRANSLATORS: how many devices could be updated in theory if
+#. we had the firmware locally
+#, c-format
+msgid "%u device is updatable"
+msgid_plural "%u devices are updatable"
+msgstr[0] "%u naprav je možno posodobiti"
+msgstr[1] "%u napravo je možno posodobiti"
+msgstr[2] "%u napravi je možno posodobiti"
+msgstr[3] "%u naprave je možno posodobiti"
+
 #. TRANSLATORS: duration in minutes
 #, c-format
 msgid "%u hour"
@@ -1244,6 +1264,10 @@ msgid "FILENAME CERTIFICATE PRIVATE-KEY"
 msgstr "IME-DATOTEKE POTRDILO OSEBNI-KLJUČ"
 
 #. TRANSLATORS: command argument: uppercase, spaces->dashes
+msgid "FILENAME DEVICE-ID [VERSION]"
+msgstr "IME-DATOTEKE ID-NAPRAVE [RAZLIČICA]"
+
+#. TRANSLATORS: command argument: uppercase, spaces->dashes
 msgid "FILENAME OFFSET DATA [FIRMWARE-TYPE]"
 msgstr "IME-DATOTEKE ODMIK PODATKI [VRSTA-VDELANE-PROGRAMSKE-OPREME]"
 
@@ -2108,6 +2132,10 @@ msgstr "Nova različica"
 msgid "No action specified!"
 msgstr "Nobeno dejanje ni določeno!"
 
+#. TRANSLATORS: no devices that can be upgraded with new firmware
+msgid "No devices are updatable"
+msgstr "Nobene naprave ni mogoče posodobiti"
+
 #. TRANSLATORS: message letting the user know no device downgrade available
 #. * %1 is the device name
 #, c-format
@@ -2281,6 +2309,10 @@ msgstr "Vnesite %s ali %s:"
 #. TRANSLATORS: Failed to open plugin, hey Arch users
 msgid "Plugin dependencies missing"
 msgstr "Manjkajo odvisnosti vstavkov"
+
+#. TRANSLATORS: The plugin enumeration might change the device current mode
+msgid "Plugin enumeration may change device state"
+msgstr "Oštevilčenje vstavka lahko spremeni stanje naprave"
 
 #. TRANSLATORS: The plugin is only for testing
 msgid "Plugin is only for testing"
@@ -2771,8 +2803,8 @@ msgstr "Uspešno onemogočene preizkusne naprave"
 
 #. TRANSLATORS: success message -- where 'metadata' is information
 #. * about available firmware on the remote server
-msgid "Successfully downloaded new metadata: "
-msgstr "Uspešno preneseni novi metapodatki: "
+msgid "Successfully downloaded new metadata:"
+msgstr "Uspešno preneseni novi metapodatki:"
 
 #. TRANSLATORS: success message
 msgid "Successfully enabled and refreshed remote"
@@ -3371,15 +3403,6 @@ msgstr "Posodobi shranjene metapodatke s trenutno vsebino"
 #. TRANSLATORS: command description
 msgid "Updates all specified devices to latest firmware version, or all devices if unspecified"
 msgstr "Posodobi vse navedene naprave na najnovejšo različico vdelane programske opreme ali vse naprave, če niso navedene"
-
-#. TRANSLATORS: how many local devices can expect updates now
-#, c-format
-msgid "Updates have been published for %u local device"
-msgid_plural "Updates have been published for %u of %u local devices"
-msgstr[0] "Posodobitve so objavljene za %u krajevno napravo"
-msgstr[1] "Posodobitve so objavljene za %u od %u krajevnih naprav"
-msgstr[2] "Posodobitve so objavljene za %u od %u krajevnih naprav"
-msgstr[3] "Posodobitve so objavljene za %u od %u krajevnih naprav"
 
 msgid "Updating"
 msgstr "Posodabljanje"

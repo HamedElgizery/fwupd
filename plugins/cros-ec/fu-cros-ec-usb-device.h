@@ -10,7 +10,8 @@
 
 #include "fu-cros-ec-firmware.h"
 
-#define FU_CROS_EC_SETUP_RETRY_CNT 5
+#define FU_CROS_EC_SETUP_RETRY_CNT	  5
+#define FU_CROS_EC_MAX_BLOCK_XFER_RETRIES 10
 
 #define FU_TYPE_CROS_EC_USB_DEVICE (fu_cros_ec_usb_device_get_type())
 G_DECLARE_DERIVABLE_TYPE(FuCrosEcUsbDevice,

@@ -319,7 +319,7 @@ fu_udev_backend_device_add_from_device(FuUdevBackend *self, FuUdevDevice *device
 			g_autoptr(FuDeviceLocker) locker = NULL;
 			g_autoptr(GError) error_local = NULL;
 
-			locker = fu_device_locker_new(device, &error_local);
+			locker = fu_device_locker_new(FU_DEVICE(device), &error_local);
 			if (locker == NULL) {
 				g_debug("failed to open device %s: %s",
 					fu_device_get_backend_id(FU_DEVICE(device)),
@@ -575,7 +575,7 @@ fu_udev_backend_netlink_parse_blob(FuUdevBackend *self, GBytes *blob, GError **e
 		if (device_tmp == NULL) {
 			g_set_error_literal(error,
 					    FWUPD_ERROR,
-					    FWUPD_ERROR_INVALID_DATA,
+					    FWUPD_ERROR_NOT_FOUND,
 					    "no device to change");
 			return FALSE;
 		}

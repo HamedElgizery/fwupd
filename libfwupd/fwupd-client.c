@@ -80,6 +80,8 @@ typedef struct {
 	gchar *user_agent;
 	GHashTable *hints;		/* str:str */
 	GHashTable *immediate_requests; /* str:FwupdRequest */
+	GStrv hwid_keys;
+	GStrv hwid_values;
 } FwupdClientPrivate;
 
 typedef struct {
@@ -971,6 +973,7 @@ fwupd_client_connect_get_proxy_cb(GObject *source, GAsyncResult *res, gpointer u
 	g_autoptr(GVariant) val8 = NULL;
 	g_autoptr(GVariant) val9 = NULL;
 	g_autoptr(GVariant) val10 = NULL;
+	g_autoptr(GVariant) val_hwids = NULL;
 	g_autoptr(GMutexLocker) locker = NULL;
 
 	proxy = g_dbus_proxy_new_finish(res, &error);
@@ -1031,6 +1034,20 @@ fwupd_client_connect_get_proxy_cb(GObject *source, GAsyncResult *res, gpointer u
 	val9 = g_dbus_proxy_get_cached_property(priv->proxy, "OnlyTrusted");
 	if (val9 != NULL)
 		priv->only_trusted = g_variant_get_boolean(val9);
+
+	val_hwids = g_dbus_proxy_get_cached_property(priv->proxy, "Hwids");
+	if (val_hwids != NULL) {
+		guint size = g_variant_n_children(val_hwids);
+		priv->hwid_keys = g_new0(gchar *, size + 1);
+		priv->hwid_values = g_new0(gchar *, size + 1);
+		for (guint i = 0; i < size; i++) {
+			const gchar *hwid_value;
+			const gchar *hwid_key;
+			g_variant_get_child(val_hwids, i, "(&s&s)", &hwid_key, &hwid_value);
+			priv->hwid_keys[i] = g_strdup(hwid_key);
+			priv->hwid_values[i] = g_strdup(hwid_value);
+		}
+	}
 
 	/* build client hints */
 	g_variant_builder_init(&builder, G_VARIANT_TYPE("a{ss}"));
@@ -2307,6 +2324,93 @@ fwupd_client_get_releases_async(FwupdClient *self,
  **/
 GPtrArray *
 fwupd_client_get_releases_finish(FwupdClient *self, GAsyncResult *res, GError **error)
+{
+	g_return_val_if_fail(FWUPD_IS_CLIENT(self), NULL);
+	g_return_val_if_fail(g_task_is_valid(res, self), NULL);
+	g_return_val_if_fail(error == NULL || *error == NULL, NULL);
+	return g_task_propagate_pointer(G_TASK(res), error);
+}
+
+static void
+fwupd_client_search_cb(GObject *source, GAsyncResult *res, gpointer user_data)
+{
+	g_autoptr(GTask) task = G_TASK(user_data);
+	g_autoptr(GError) error = NULL;
+	g_autoptr(GPtrArray) array = NULL;
+	g_autoptr(GVariant) val = NULL;
+
+	val = g_dbus_proxy_call_finish(G_DBUS_PROXY(source), res, &error);
+	if (val == NULL) {
+		fwupd_client_fixup_dbus_error(error);
+		g_task_return_error(task, g_steal_pointer(&error));
+		return;
+	}
+	array = fwupd_codec_array_from_variant(val, FWUPD_TYPE_RELEASE, &error);
+	if (array == NULL) {
+		g_task_return_error(task, g_steal_pointer(&error));
+		return;
+	}
+
+	/* success */
+	g_task_return_pointer(task, g_steal_pointer(&array), (GDestroyNotify)g_ptr_array_unref);
+}
+
+/**
+ * fwupd_client_search_async:
+ * @self: a #FwupdClient
+ * @token: (not nullable): a search term
+ * @cancellable: (nullable): optional #GCancellable
+ * @callback: (scope async) (closure callback_data): the function to run on completion
+ * @callback_data: the data to pass to @callback
+ *
+ * Gets all the releases that match a specific token.
+ *
+ * You must have called [method@Client.connect_async] on @self before using
+ * this method.
+ *
+ * Since: 2.0.16
+ **/
+void
+fwupd_client_search_async(FwupdClient *self,
+			  const gchar *token,
+			  GCancellable *cancellable,
+			  GAsyncReadyCallback callback,
+			  gpointer callback_data)
+{
+	FwupdClientPrivate *priv = GET_PRIVATE(self);
+	g_autoptr(GTask) task = NULL;
+
+	g_return_if_fail(FWUPD_IS_CLIENT(self));
+	g_return_if_fail(token != NULL);
+	g_return_if_fail(cancellable == NULL || G_IS_CANCELLABLE(cancellable));
+	g_return_if_fail(priv->proxy != NULL);
+
+	/* call into daemon */
+	task = g_task_new(self, cancellable, callback, callback_data);
+	g_dbus_proxy_call(priv->proxy,
+			  "Search",
+			  g_variant_new("(s)", token),
+			  G_DBUS_CALL_FLAGS_NONE,
+			  FWUPD_CLIENT_DBUS_PROXY_TIMEOUT,
+			  cancellable,
+			  fwupd_client_search_cb,
+			  g_steal_pointer(&task));
+}
+
+/**
+ * fwupd_client_search_finish:
+ * @self: a #FwupdClient
+ * @res: (not nullable): the asynchronous result
+ * @error: (nullable): optional return location for an error
+ *
+ * Gets the result of [method@FwupdClient.search_async].
+ *
+ * Returns: (element-type FwupdRelease) (transfer container): results
+ *
+ * Since: 2.0.16
+ **/
+GPtrArray *
+fwupd_client_search_finish(FwupdClient *self, GAsyncResult *res, GError **error)
 {
 	g_return_val_if_fail(FWUPD_IS_CLIENT(self), NULL);
 	g_return_val_if_fail(g_task_is_valid(res, self), NULL);
@@ -4054,6 +4158,27 @@ fwupd_client_get_host_security_id(FwupdClient *self)
 }
 
 /**
+ * fwupd_client_get_hwids:
+ * @self: a #FwupdClient
+ * @keys: (out) (optional): CHID keys
+ * @values: (out) (optional): CHID values
+ *
+ * Gets the daemon hardware IDs, sometimes called CHIDs.
+ *
+ * Since: 2.0.17
+ **/
+void
+fwupd_client_get_hwids(FwupdClient *self, GStrv *keys, GStrv *values)
+{
+	FwupdClientPrivate *priv = GET_PRIVATE(self);
+	g_return_if_fail(FWUPD_IS_CLIENT(self));
+	if (keys != NULL)
+		*keys = g_strdupv(priv->hwid_keys);
+	if (values != NULL)
+		*values = g_strdupv(priv->hwid_values);
+}
+
+/**
  * fwupd_client_get_battery_level:
  * @self: a #FwupdClient
  *
@@ -5600,6 +5725,14 @@ fwupd_client_download_http(FwupdClient *self, CURL *curl, const gchar *url, GErr
 	res = curl_easy_perform(curl);
 	fwupd_client_set_status(self, FWUPD_STATUS_IDLE);
 	fwupd_client_set_percentage(self, 100);
+	if (res == CURLE_SEND_ERROR || res == CURLE_RECV_ERROR) {
+		g_set_error(error,
+			    FWUPD_ERROR,
+			    FWUPD_ERROR_TIMED_OUT,
+			    "transient failure: %s",
+			    errbuf);
+		return NULL;
+	}
 	if (res != CURLE_OK) {
 		if (errbuf[0] != '\0') {
 			g_set_error(error,
@@ -7664,6 +7797,8 @@ fwupd_client_finalize(GObject *object)
 	FwupdClient *self = FWUPD_CLIENT(object);
 	FwupdClientPrivate *priv = GET_PRIVATE(self);
 
+	g_strfreev(priv->hwid_keys);
+	g_strfreev(priv->hwid_values);
 	g_clear_pointer(&priv->main_ctx, g_main_context_unref);
 	g_free(priv->user_agent);
 	g_free(priv->package_name);

@@ -939,7 +939,7 @@ fu_cros_ec_usb_device_write_firmware(FuDevice *device,
 			return FALSE;
 		}
 
-		// TODO: Fix me, section->version.triplet has no data...
+		/* TODO: fix me, section->version.triplet has no data... */
 		if (priv->in_bootloader) {
 			fu_device_set_version(device, section->version.triplet);
 		} else {

@@ -152,6 +152,16 @@ fwupd_client_get_releases_finish(FwupdClient *self,
 				 GAsyncResult *res,
 				 GError **error) G_GNUC_WARN_UNUSED_RESULT G_GNUC_NON_NULL(1, 2);
 void
+fwupd_client_search_async(FwupdClient *self,
+			  const gchar *token,
+			  GCancellable *cancellable,
+			  GAsyncReadyCallback callback,
+			  gpointer callback_data) G_GNUC_NON_NULL(1, 2);
+GPtrArray *
+fwupd_client_search_finish(FwupdClient *self,
+			   GAsyncResult *res,
+			   GError **error) G_GNUC_WARN_UNUSED_RESULT G_GNUC_NON_NULL(1, 2);
+void
 fwupd_client_get_downgrades_async(FwupdClient *self,
 				  const gchar *device_id,
 				  GCancellable *cancellable,
@@ -515,6 +525,8 @@ const gchar *
 fwupd_client_get_host_machine_id(FwupdClient *self) G_GNUC_NON_NULL(1);
 const gchar *
 fwupd_client_get_host_security_id(FwupdClient *self) G_GNUC_NON_NULL(1);
+void
+fwupd_client_get_hwids(FwupdClient *self, GStrv *keys, GStrv *values) G_GNUC_NON_NULL(1);
 guint32
 fwupd_client_get_battery_level(FwupdClient *self) G_GNUC_NON_NULL(1);
 guint32

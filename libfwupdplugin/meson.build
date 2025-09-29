@@ -38,8 +38,9 @@ fwupdplugin_structs = [
 
 # do not use structgen as these are referenced in headers too...
 fwupdplugin_rs_targets = []
-foreach fwupdplugin_struct: fwupdplugin_structs
-  fwupdplugin_rs_targets += custom_target('lib' + fwupdplugin_struct,
+foreach fwupdplugin_struct : fwupdplugin_structs
+  fwupdplugin_rs_targets += custom_target(
+    'lib' + fwupdplugin_struct,
     input: fwupdplugin_struct,
     output: [
       fwupdplugin_struct.replace('.rs', '-struct.c'),
@@ -48,7 +49,9 @@ foreach fwupdplugin_struct: fwupdplugin_structs
     command: [
       python3,
       join_paths(meson.project_source_root(), 'libfwupdplugin', 'rustgen.py'),
-      '@INPUT@', '@OUTPUT0@', '@OUTPUT1@',
+      '@INPUT@',
+      '@OUTPUT0@',
+      '@OUTPUT1@',
     ],
   )
 endforeach
@@ -104,12 +107,15 @@ fwupdplugin_src = [
   'fu-efi-lz77-decompressor.c', # fuzzing
   'fu-efi-hard-drive-device-path.c', # fuzzing
   'fu-efi-load-option.c', # fuzzing
-  'fu-efi-signature.c',
-  'fu-efi-signature-list.c',
+  'fu-efi-signature.c', # fuzzing
+  'fu-efi-signature-list.c', # fuzzing
   'fu-efi-variable-authentication2.c',
+  'fu-efi-vss2-variable-store.c', # fuzzing
+  'fu-efi-vss-auth-variable.c', # fuzzing
+  'fu-efi-ftw-store.c', # fuzzing
   'fu-efivars.c', # fuzzing
   'fu-efi-x509-device.c',
-  'fu-efi-x509-signature.c',
+  'fu-efi-x509-signature.c', # fuzzing
   'fu-elf-firmware.c', # fuzzing
   'fu-fdt-firmware.c', # fuzzing
   'fu-fdt-image.c', # fuzzing
@@ -186,7 +192,8 @@ fwupdplugin_src = [
   'fu-version-common.c', # fuzzing
   'fu-v4l-device.c',
   'fu-volume.c', # fuzzing
-  'fu-x509-certificate.c',
+  'fu-volume-locker.c', # fuzzing
+  'fu-x509-certificate.c', # fuzzing
 ]
 
 if host_machine.system() in ['linux', 'android']
@@ -200,7 +207,7 @@ elif host_machine.system() == 'windows'
   fwupdplugin_src += 'fu-windows-efivars.c'
 elif host_machine.system() == 'darwin'
   fwupdplugin_src += 'fu-common-darwin.c'
-  fwupdplugin_src += 'fu-darwin-efivars.c' # fuzzing
+  fwupdplugin_src += 'fu-darwin-efivars.c'  # fuzzing
 endif
 
 fwupdplugin_headers = [
@@ -238,6 +245,7 @@ fwupdplugin_headers = [
   'fu-device-event.h',
   'fu-device-locker.h',
   'fu-device-metadata.h',
+  'fu-device-poll-locker.h',
   'fu-device-private.h',
   'fu-device-progress.h',
   'fu-dfu-firmware.h',
@@ -258,6 +266,9 @@ fwupdplugin_headers = [
   'fu-efi-signature.h',
   'fu-efi-signature-list.h',
   'fu-efi-variable-authentication2.h',
+  'fu-efi-vss2-variable-store.h',
+  'fu-efi-vss-auth-variable.h',
+  'fu-efi-ftw-store.h',
   'fu-efivars.h',
   'fu-efi-x509-device.h',
   'fu-efi-x509-signature.h',
@@ -341,23 +352,21 @@ fwupdplugin_headers = [
   'fu-v4l-device.h',
   'fu-version-common.h',
   'fu-volume.h',
+  'fu-volume-locker.h',
   'fu-x509-certificate.h',
 ]
 
-introspection_deps = [
-  libxmlb,
-  giounix,
-  libusb,
-]
+introspection_deps = [libxmlb, giounix, libusb]
 
-pkgg_requires = [ 'gio-2.0',
-                  'gmodule-2.0',
-                  'gobject-2.0',
-                  'fwupd',
-                  'json-glib-1.0',
-                  'libarchive',
-                  'xmlb',
-                  'libusb',
+pkgg_requires = [
+  'gio-2.0',
+  'gmodule-2.0',
+  'gobject-2.0',
+  'fwupd',
+  'json-glib-1.0',
+  'libarchive',
+  'xmlb',
+  'libusb',
 ]
 
 library_deps = [
@@ -380,33 +389,28 @@ library_deps = [
 fwupdplugin = library(
   'fwupdplugin',
   fwupdplugin_rs_targets,
-  sources: [
-    fwupdplugin_src,
-    fwupdplugin_headers,
-  ],
-  include_directories: [
-    root_incdir,
-    fwupd_incdir,
-  ],
-  dependencies: [
-    library_deps
-  ],
-  link_with: [
-    fwupd,
-  ],
+  sources: [fwupdplugin_src, fwupdplugin_headers],
+  include_directories: [root_incdir, fwupd_incdir],
+  dependencies: [library_deps],
+  link_with: [fwupd],
   install_dir: libdir_pkg,
-  install: true
+  install: true,
 )
 
 # see https://mesonbuild.com/FAQ.html#how-do-i-tell-meson-that-my-sources-use-generated-headers
 fwupdplugin_rs_headers = []
-foreach fwupdplugin_rs_target: fwupdplugin_rs_targets
+foreach fwupdplugin_rs_target : fwupdplugin_rs_targets
   fwupdplugin_rs_headers += fwupdplugin_rs_target[1]
 endforeach
-fwupdplugin_rs_dep = declare_dependency(link_with: fwupdplugin, sources: fwupdplugin_rs_headers)
+fwupdplugin_rs_dep = declare_dependency(
+  link_with: fwupdplugin,
+  sources: fwupdplugin_rs_headers,
+)
 
 if introspection.allowed()
-  gir_dep = declare_dependency(sources: fwupd_gir)
+  gir_dep = declare_dependency(
+    sources: fwupd_gir
+  )
   girtargets = []
   extra_args = []
   if libxmlb.type_name() == 'internal'
@@ -414,57 +418,31 @@ if introspection.allowed()
   else
     girtargets += 'Xmlb-2.0'
   endif
-  fwupdplugin_gir = gnome.generate_gir(fwupd,
-    sources: [
-      fwupdplugin_src,
-      fwupdplugin_headers,
-      fwupdplugin_rs_targets,
-    ],
+  fwupdplugin_gir = gnome.generate_gir(
+    fwupd,
+    sources: [fwupdplugin_src, fwupdplugin_headers, fwupdplugin_rs_targets],
     nsversion: '1.0',
     namespace: 'FwupdPlugin',
     symbol_prefix: 'fu',
     identifier_prefix: 'Fu',
     export_packages: 'fwupdplugin',
     extra_args: extra_args,
-    include_directories: [
-      fwupd_incdir,
-    ],
+    include_directories: [fwupd_incdir],
     header: 'fwupdplugin.h',
-    dependencies: [
-      gir_dep,
-      introspection_deps
-    ],
-    link_with: [
-      fwupdplugin,
-    ],
-    includes: [
-      'Gio-2.0',
-      'GObject-2.0',
-      girtargets,
-      fwupd_gir[0],
-    ],
-    install: false
+    dependencies: [gir_dep, introspection_deps],
+    link_with: [fwupdplugin],
+    includes: ['Gio-2.0', 'GObject-2.0', girtargets, fwupd_gir[0]],
+    install: false,
   )
 endif
 
 if get_option('tests')
   gcab = executable(
     'gcab',
-    sources: [
-      'fu-gcab.c',
-    ],
-    include_directories: [
-      root_incdir,
-      fwupd_incdir,
-    ],
-    dependencies: [
-      library_deps,
-      fwupdplugin_rs_dep,
-    ],
-    link_with: [
-      fwupd,
-      fwupdplugin
-    ],
+    sources: ['fu-gcab.c'],
+    include_directories: [root_incdir, fwupd_incdir],
+    dependencies: [library_deps, fwupdplugin_rs_dep],
+    link_with: [fwupd, fwupdplugin],
   )
 
   subdir('tests')
@@ -475,31 +453,23 @@ if get_option('tests')
     'fwupdplugin-self-test',
     installed_firmware_zip,
     rustgen.process('fu-self-test.rs'),
-    sources: [
-      'fu-test-device.c',
-      'fu-self-test.c'
-    ],
-    include_directories: [
-      root_incdir,
-      fwupd_incdir,
-    ],
-    dependencies: [
-      library_deps,
-      fwupdplugin_rs_dep,
-    ],
-    link_with: [
-      fwupd,
-      fwupdplugin
-    ],
-    c_args: [
-      '-DSRCDIR="' + meson.current_source_dir() + '"',
-    ],
+    sources: ['fu-test-device.c', 'fu-self-test.c'],
+    include_directories: [root_incdir, fwupd_incdir],
+    dependencies: [library_deps, fwupdplugin_rs_dep],
+    link_with: [fwupd, fwupdplugin],
+    c_args: ['-DSRCDIR="' + meson.current_source_dir() + '"'],
     install: true,
     install_rpath: libdir_pkg,
     install_tag: 'tests',
     install_dir: installed_test_bindir,
   )
-  test('fwupdplugin-self-test', e, is_parallel: false, timeout: 180, env: env)
+  test(
+    'fwupdplugin-self-test',
+    e,
+    is_parallel: false,
+    timeout: 180,
+    env: env,
+  )
 endif
 
 fwupdplugin_incdir = include_directories('.')

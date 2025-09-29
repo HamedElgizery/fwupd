@@ -156,6 +156,17 @@
     </property>
 
     <!--***********************************************************-->
+    <property name='Hwids' type='a(ss)' access='read'>
+      <doc:doc>
+        <doc:description>
+          <doc:para>
+            The daemon hardware IDs, sometimes called CHIDs.
+          </doc:para>
+        </doc:description>
+      </doc:doc>
+    </property>
+
+    <!--***********************************************************-->
     <method name='GetDevices'>
       <doc:doc>
         <doc:description>
@@ -1070,6 +1081,33 @@
               JSON data of each phase packaged as a ZIP archive
               (e.g. <doc:tt>setup.json</doc:tt>, <doc:tt>install.json</doc:tt>, <doc:tt>reload.json</doc:tt>).
             </doc:para>
+          </doc:summary>
+        </doc:doc>
+      </arg>
+    </method>
+
+    <!--***********************************************************-->
+    <method name='Search'>
+      <doc:doc>
+        <doc:description>
+          <doc:para>
+            Return search data.
+          </doc:para>
+        </doc:description>
+      </doc:doc>
+      <arg type='s' name='token' direction='in'>
+        <doc:doc>
+          <doc:summary>
+            <doc:para>
+              A search term.
+            </doc:para>
+          </doc:summary>
+        </doc:doc>
+      </arg>
+      <arg type='aa{sv}' name='results' direction='out'>
+        <doc:doc>
+          <doc:summary>
+            <doc:para>Releases that match the search term</doc:para>
           </doc:summary>
         </doc:doc>
       </arg>
