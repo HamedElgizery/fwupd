@@ -68,6 +68,32 @@ struct FuStructCrosEcFirstResponsePdu {
     flash_protection: u32be,    // status
     offset: u32be,              // offset of the other region
     version: [char; 32],        // version string of the other region
-    _min_rollback: u32be,        // minimum rollback version that RO will accept
-    _key_version: u32be,         // RO public key version
+    min_rollback: u32be,       // minimum rollback version that RO will accept
+    key_version: u32be,        // RO public key version
+}
+
+#[repr(C, packed)]
+struct FuStructCrosEcVb2Id {
+    raw: [u8; 20],
+
+#[repr(C, packed)]
+struct FuStructCrosEcVb21StructCommon {
+    magic: u32le,
+    struct_version_major: u16le,
+    struct_version_minor: u16le,
+    total_size: u32le,
+    fixed_size: u32le,
+    desc_size: u32le,
+}
+
+#[derive(New, Getters)]
+#[repr(C, packed)]
+struct FuStructCrosEcVb21PackedKey {
+    c: FuStructCrosEcVb21StructCommon,
+    key_offset: u32le,
+    key_size: u32le,
+    sig_alg: u16le,
+    hash_alg: u16le,
+    key_version: u32le,
+    id: FuStructCrosEcVb2Id,
 }
