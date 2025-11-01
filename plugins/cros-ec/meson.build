@@ -9,6 +9,9 @@ plugin_builtins += static_library('fu_plugin_cros_ec',
   sources: [
     'fu-cros-ec-plugin.c',
     'fu-cros-ec-usb-device.c',
+    'fu-cros-ec-usb-hammer.c',
+    'fu-cros-ec-hammer-touchpad.c',
+    'fu-cros-ec-hammer-touchpad-firmware.c',
     'fu-cros-ec-common.c',      # fuzzing
     'fu-cros-ec-firmware.c',    # fuzzing
   ],
@@ -18,6 +21,7 @@ plugin_builtins += static_library('fu_plugin_cros_ec',
   dependencies: plugin_deps,
 )
 
+#TODO: Add test for hammer
 device_tests += files(
   'tests/acer-d501.json',
   'tests/google-servo-micro.json',

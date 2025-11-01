@@ -7,8 +7,11 @@
 #include "config.h"
 
 #include "fu-cros-ec-firmware.h"
+#include "fu-cros-ec-hammer-touchpad-firmware.h"
+#include "fu-cros-ec-hammer-touchpad.h"
 #include "fu-cros-ec-plugin.h"
 #include "fu-cros-ec-usb-device.h"
+#include "fu-cros-ec-usb-hammer.h"
 
 struct _FuCrosEcPlugin {
 	FuPlugin parent_instance;
@@ -27,7 +30,9 @@ fu_cros_ec_plugin_constructed(GObject *obj)
 	FuPlugin *plugin = FU_PLUGIN(obj);
 	fu_plugin_add_udev_subsystem(plugin, "usb");
 	fu_plugin_add_device_gtype(plugin, FU_TYPE_CROS_EC_USB_DEVICE);
+	fu_plugin_add_device_gtype(plugin, FU_TYPE_CROS_EC_USB_HAMMER);
 	fu_plugin_add_firmware_gtype(plugin, NULL, FU_TYPE_CROS_EC_FIRMWARE);
+	fu_plugin_add_firmware_gtype(plugin, NULL, FU_TYPE_CROS_EC_HAMMER_TOUCHPAD_FIRMWARE);
 }
 
 static void
